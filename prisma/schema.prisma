@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── MEDICINES ───────────────────────────────────────────────
+
+model Drug {
+  id              String   @id @default(cuid())
+  name            String
+  genericName     String
+  brandName       String?
+  manufacturer    String
+  composition     String   // e.g. "Paracetamol 500mg"
+  category        String   // e.g. "Pain Relief", "Antibiotics"
+  dosageForm      String   // e.g. "Tablet", "Syrup", "Injection"
+  packSize        String   // e.g. "10 tablets", "100ml"
+  prescriptionReq Boolean  @default(false)
+  isGeneric       Boolean  @default(false)
+  whoCertified    Boolean  @default(false)
+  imageUrl        String?
+  description     String?
+  sideEffects     String?
+  uses            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  prices       DrugPrice[]
+  alternatives DrugAlternative[] @relation("OriginalDrug")
+  alternativeOf DrugAlternative[] @relation("AlternativeDrug")
+  scanResults  ScanResult[]
+
+  @@index([genericName])
+  @@index([name])
+  @@index([category])
+}
+
+model DrugPrice {
+  id          String   @id @default(cuid())
+  drugId      String
+  drug        Drug     @relation(fields: [drugId], references: [id])
+  source      String   // "1mg", "PharmEasy", "Netmeds", "JanAushadhi", "Apollo"
+  sourceUrl   String?
+  mrp         Float
+  sellingPrice Float
+  discount    Float    @default(0)
+  inStock     Boolean  @default(true)
+  lastChecked DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([drugId])
+  @@index([source])
+}
+
+model DrugAlternative {
+  id              String @id @default(cuid())
+  originalDrugId  String
+  originalDrug    Drug   @relation("OriginalDrug", fields: [originalDrugId], references: [id])
+  alternativeDrugId String
+  alternativeDrug Drug   @relation("AlternativeDrug", fields: [alternativeDrugId], references: [id])
+  savingsPercent  Float  @default(0)
+
+  @@unique([originalDrugId, alternativeDrugId])
+}
+
+// ─── PROCEDURES / SURGERIES ──────────────────────────────────
+
+model Procedure {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  category      String   // "Orthopedics", "Cardiology", "Ophthalmology", etc.
+  description   String?
+  duration      String?  // e.g. "2-3 hours"
+  recoveryTime  String?  // e.g. "2-4 weeks"
+  anesthesia    String?  // "General", "Local", "Spinal"
+  imageUrl      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  prices ProcedurePrice[]
+
+  @@index([category])
+}
+
+model ProcedurePrice {
+  id            String   @id @default(cuid())
+  procedureId   String
+  procedure     Procedure @relation(fields: [procedureId], references: [id])
+  hospitalName  String
+  city          String
+  minPrice      Float
+  maxPrice      Float
+  avgPrice      Float
+  includesStay  Boolean  @default(false)
+  accreditation String?  // "NABH", "JCI"
+  rating        Float?
+  lastChecked   DateTime @default(now())
+
+  @@index([procedureId])
+  @@index([city])
+}
+
+// ─── DIAGNOSTICS / LAB TESTS ─────────────────────────────────
+
+model Diagnostic {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  category      String   // "Blood Test", "Imaging", "Pathology"
+  type          String   // "MRI", "CT Scan", "X-Ray", "Blood", "Urine"
+  description   String?
+  preparation   String?  // e.g. "Fasting 8-12 hours"
+  reportTime    String?  // e.g. "Same day", "24 hours"
+  homeCollection Boolean @default(false)
+  imageUrl      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  prices DiagnosticPrice[]
+
+  @@index([category])
+  @@index([type])
+}
+
+model DiagnosticPrice {
+  id            String   @id @default(cuid())
+  diagnosticId  String
+  diagnostic    Diagnostic @relation(fields: [diagnosticId], references: [id])
+  labName       String
+  city          String
+  mrp           Float
+  sellingPrice  Float
+  homeCollection Boolean @default(false)
+  accreditation String?  // "NABL", "CAP"
+  lastChecked   DateTime @default(now())
+
+  @@index([diagnosticId])
+  @@index([city])
+}
+
+// ─── PRESCRIPTION SCAN ───────────────────────────────────────
+
+model PrescriptionScan {
+  id            String   @id @default(cuid())
+  sessionId     String   // anonymous session tracking
+  imageUrl      String?
+  rawText       String   // OCR extracted text
+  status        String   @default("processing") // "processing", "completed", "failed"
+  createdAt     DateTime @default(now())
+
+  results ScanResult[]
+
+  @@index([sessionId])
+}
+
+model ScanResult {
+  id              String @id @default(cuid())
+  scanId          String
+  scan            PrescriptionScan @relation(fields: [scanId], references: [id])
+  extractedName   String // medicine name from prescription
+  matchedDrugId   String?
+  matchedDrug     Drug?  @relation(fields: [matchedDrugId], references: [id])
+  confidence      Float  @default(0) // OCR confidence 0-1
+  quantity        String? // e.g. "1 strip", "30 tablets"
+  dosage          String? // e.g. "twice daily"
+
+  @@index([scanId])
+}
