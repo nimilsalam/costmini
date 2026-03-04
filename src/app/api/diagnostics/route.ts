@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sampleDiagnostics } from "@/lib/sample-data";
+import { prisma } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -7,29 +7,35 @@ export async function GET(req: NextRequest) {
   const category = searchParams.get("category");
   const homeCollection = searchParams.get("home");
 
-  let diagnostics = sampleDiagnostics;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: any = {};
 
   if (q) {
-    diagnostics = diagnostics.filter(
-      (d) =>
-        d.name.toLowerCase().includes(q) ||
-        d.type.toLowerCase().includes(q) ||
-        d.category.toLowerCase().includes(q)
-    );
+    where.OR = [
+      { name: { contains: q } },
+      { type: { contains: q } },
+      { category: { contains: q } },
+    ];
   }
 
   if (category) {
-    diagnostics = diagnostics.filter((d) => d.category === category);
+    where.category = category;
   }
 
   if (homeCollection === "true") {
-    diagnostics = diagnostics.filter((d) => d.homeCollection);
+    where.homeCollection = true;
   }
 
-  const results = diagnostics.map((d) => ({
+  const diagnostics = await prisma.diagnostic.findMany({
+    where,
+    include: { prices: { orderBy: { sellingPrice: "asc" } } },
+    orderBy: { name: "asc" },
+  });
+
+  const results = diagnostics.map((d: { prices: { sellingPrice: number; mrp: number }[] } & Record<string, unknown>) => ({
     ...d,
-    lowestPrice: Math.min(...d.prices.map((p) => p.sellingPrice)),
-    highestMrp: Math.max(...d.prices.map((p) => p.mrp)),
+    lowestPrice: d.prices.length > 0 ? Math.min(...d.prices.map((p) => p.sellingPrice)) : 0,
+    highestMrp: d.prices.length > 0 ? Math.max(...d.prices.map((p) => p.mrp)) : 0,
     labCount: d.prices.length,
   }));
 

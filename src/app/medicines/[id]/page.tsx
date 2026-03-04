@@ -1,17 +1,89 @@
 "use client";
 
-import { use } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Shield, Share2, ExternalLink, AlertCircle } from "lucide-react";
-import { sampleDrugs } from "@/lib/sample-data";
+import { ArrowLeft, Shield, Share2, ExternalLink, AlertCircle, Loader2 } from "lucide-react";
 import { formatPrice, calcSavings, whatsappShareUrl, whatsappDrugShareText } from "@/lib/utils";
+
+interface DrugPrice {
+  source: string;
+  sourceUrl?: string;
+  mrp: number;
+  sellingPrice: number;
+  inStock: boolean;
+  lastChecked: string;
+}
+
+interface Drug {
+  id: string;
+  name: string;
+  slug: string;
+  genericName: string;
+  manufacturer: string;
+  composition: string;
+  category: string;
+  dosageForm: string;
+  packSize: string;
+  isGeneric: boolean;
+  whoCertified: boolean;
+  prescriptionReq: boolean;
+  uses?: string;
+  sideEffects?: string;
+  prices: DrugPrice[];
+  lowestPrice: number;
+  highestMrp: number;
+}
+
+interface Alternative {
+  id: string;
+  name: string;
+  slug: string;
+  manufacturer: string;
+  packSize: string;
+  isGeneric: boolean;
+  whoCertified: boolean;
+  prices: DrugPrice[];
+  lowestPrice: number;
+  savingsPercent: number;
+}
 
 export default function DrugDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const idx = parseInt(id);
-  const drug = sampleDrugs[idx];
+  const [drug, setDrug] = useState<Drug | null>(null);
+  const [alternatives, setAlternatives] = useState<Alternative[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  if (!drug) {
+  useEffect(() => {
+    async function fetchDrug() {
+      try {
+        const res = await fetch(`/api/drugs/${id}`);
+        if (!res.ok) {
+          setNotFound(true);
+          setLoading(false);
+          return;
+        }
+        const data = await res.json();
+        setDrug(data.drug);
+        setAlternatives(data.alternatives || []);
+      } catch {
+        setNotFound(true);
+      }
+      setLoading(false);
+    }
+    fetchDrug();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-16 text-center">
+        <Loader2 size={32} className="mx-auto text-[var(--color-primary)] animate-spin mb-4" />
+        <p className="text-gray-500">Loading medicine details...</p>
+      </div>
+    );
+  }
+
+  if (notFound || !drug) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16 text-center">
         <p className="text-gray-500 text-lg">Medicine not found</p>
@@ -22,18 +94,9 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
     );
   }
 
-  const cheapest = Math.min(...drug.prices.map((p) => p.sellingPrice));
-  const mrp = Math.max(...drug.prices.map((p) => p.mrp));
+  const cheapest = drug.lowestPrice;
+  const mrp = drug.highestMrp;
   const savings = calcSavings(mrp, cheapest);
-
-  // Find generic alternatives
-  const alternatives = sampleDrugs.filter(
-    (d, i) =>
-      i !== idx &&
-      d.genericName === drug.genericName &&
-      d.isGeneric !== drug.isGeneric
-  );
-
   const shareText = whatsappDrugShareText(drug.name, mrp, cheapest, savings);
 
   return (
@@ -66,8 +129,7 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
             </div>
             <p className="text-gray-600 mb-1">{drug.composition}</p>
             <p className="text-sm text-gray-500">
-              {drug.manufacturer} &middot; {drug.dosageForm} &middot;{" "}
-              {drug.packSize}
+              {drug.manufacturer} &middot; {drug.dosageForm} &middot; {drug.packSize}
             </p>
             {drug.prescriptionReq && (
               <p className="text-sm text-amber-600 mt-2 flex items-center gap-1">
@@ -121,15 +183,11 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
                   return (
                     <tr
                       key={i}
-                      className={`border-b border-gray-50 ${
-                        isCheapest ? "bg-green-50/50" : ""
-                      }`}
+                      className={`border-b border-gray-50 ${isCheapest ? "bg-green-50/50" : ""}`}
                     >
                       <td className="py-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">
-                            {price.source}
-                          </span>
+                          <span className="font-medium text-gray-900">{price.source}</span>
                           {isCheapest && (
                             <span className="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700 font-medium">
                               Cheapest
@@ -137,36 +195,33 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
                           )}
                         </div>
                       </td>
-                      <td className="py-3 text-gray-500">
-                        {formatPrice(price.mrp)}
-                      </td>
-                      <td className="py-3 font-semibold text-gray-900">
-                        {formatPrice(price.sellingPrice)}
-                      </td>
+                      <td className="py-3 text-gray-500">{formatPrice(price.mrp)}</td>
+                      <td className="py-3 font-semibold text-gray-900">{formatPrice(price.sellingPrice)}</td>
                       <td className="py-3">
                         {pSavings > 0 ? (
-                          <span className="text-green-600 font-medium">
-                            {pSavings}% off
-                          </span>
+                          <span className="text-green-600 font-medium">{pSavings}% off</span>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-gray-400">&mdash;</span>
                         )}
                       </td>
                       <td className="py-3">
-                        <span
-                          className={`text-sm ${
-                            price.inStock
-                              ? "text-green-600"
-                              : "text-red-500"
-                          }`}
-                        >
+                        <span className={`text-sm ${price.inStock ? "text-green-600" : "text-red-500"}`}>
                           {price.inStock ? "In Stock" : "Out of Stock"}
                         </span>
                       </td>
                       <td className="py-3">
-                        <button className="text-[var(--color-primary)] hover:underline text-sm flex items-center gap-1">
-                          Visit <ExternalLink size={12} />
-                        </button>
+                        {price.sourceUrl ? (
+                          <a
+                            href={price.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[var(--color-primary)] hover:underline text-sm flex items-center gap-1"
+                          >
+                            Visit <ExternalLink size={12} />
+                          </a>
+                        ) : (
+                          <span className="text-gray-300 text-sm">Visit</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -186,41 +241,31 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
             Same composition ({drug.composition}), from certified manufacturers
           </p>
           <div className="space-y-3">
-            {alternatives.map((alt, i) => {
-              const altCheapest = Math.min(
-                ...alt.prices.map((p) => p.sellingPrice)
-              );
+            {alternatives.map((alt) => {
+              const altCheapest = alt.lowestPrice;
               const altSavings = calcSavings(mrp, altCheapest);
               return (
                 <Link
-                  key={i}
-                  href={`/medicines/${sampleDrugs.indexOf(alt)}`}
+                  key={alt.id}
+                  href={`/medicines/${alt.slug}`}
                   className="block bg-white rounded-xl p-4 hover:shadow-md transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">
-                          {alt.name}
-                        </span>
+                        <span className="font-medium text-gray-900">{alt.name}</span>
                         {alt.isGeneric && (
                           <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
                             Generic
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-500">
-                        {alt.manufacturer} &middot; {alt.packSize}
-                      </p>
+                      <p className="text-sm text-gray-500">{alt.manufacturer} &middot; {alt.packSize}</p>
                     </div>
                     <div className="text-right">
-                      <div className="text-xl font-bold text-green-600">
-                        {formatPrice(altCheapest)}
-                      </div>
+                      <div className="text-xl font-bold text-green-600">{formatPrice(altCheapest)}</div>
                       {altSavings > 0 && (
-                        <span className="text-sm text-green-600">
-                          Save {altSavings}%
-                        </span>
+                        <span className="text-sm text-green-600">Save {altSavings}%</span>
                       )}
                     </div>
                   </div>
@@ -242,18 +287,14 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
         {drug.sideEffects && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
             <h3 className="font-semibold text-gray-900 mb-3">Side Effects</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              {drug.sideEffects}
-            </p>
+            <p className="text-sm text-gray-600 leading-relaxed">{drug.sideEffects}</p>
           </div>
         )}
       </div>
 
       {/* Share CTA */}
       <div className="bg-green-50 rounded-2xl border border-green-200 p-6 text-center">
-        <p className="text-gray-700 font-medium mb-3">
-          Help someone save on their medicines
-        </p>
+        <p className="text-gray-700 font-medium mb-3">Help someone save on their medicines</p>
         <a
           href={whatsappShareUrl(shareText)}
           target="_blank"

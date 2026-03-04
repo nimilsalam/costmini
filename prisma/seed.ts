@@ -1,17 +1,22 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { PrismaClient } = require("@prisma/client");
+const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
+const path = require("path");
 const {
   sampleDrugs,
   sampleProcedures,
   sampleDiagnostics,
 } = require("../src/lib/sample-data");
 
-const prisma = new PrismaClient();
+const dbPath = path.join(__dirname, "..", "dev.db");
+const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log("Seeding database...");
 
   // Clear existing data
+  await prisma.syncLog.deleteMany();
   await prisma.scanResult.deleteMany();
   await prisma.prescriptionScan.deleteMany();
   await prisma.drugAlternative.deleteMany();
@@ -22,12 +27,35 @@ async function main() {
   await prisma.diagnosticPrice.deleteMany();
   await prisma.diagnostic.deleteMany();
 
+  // Helper to generate slug from name
+  function toSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  // Track used slugs to avoid duplicates
+  const usedSlugs = new Set<string>();
+  function uniqueSlug(name: string, existingSlug?: string): string {
+    let slug = existingSlug || toSlug(name);
+    if (usedSlugs.has(slug)) {
+      let i = 2;
+      while (usedSlugs.has(`${slug}-${i}`)) i++;
+      slug = `${slug}-${i}`;
+    }
+    usedSlugs.add(slug);
+    return slug;
+  }
+
   // Seed drugs
   const drugIds: Record<string, string> = {};
   for (const d of sampleDrugs) {
+    const slug = uniqueSlug(d.name, d.slug);
     const drug = await prisma.drug.create({
       data: {
         name: d.name,
+        slug,
         genericName: d.genericName,
         brandName: d.brandName,
         manufacturer: d.manufacturer,

@@ -1,63 +1,77 @@
 import Groq from "groq-sdk";
+import { prisma } from "./db";
+import { formatPrice, calcSavings } from "./utils";
 
-// Groq client — uses GROQ_API_KEY env var
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || "",
 });
 
-// ─── Medicine Knowledge Base ───────────────────────────────────────
-import { sampleDrugs, sampleProcedures, sampleDiagnostics } from "./sample-data";
-import { formatPrice, calcSavings } from "./utils";
+// ─── Medicine Knowledge Base (Prisma-backed) ─────────────────
 
-function buildMedicineContext(query: string): string {
+async function buildMedicineContext(query: string): Promise<string> {
   const q = query.toLowerCase();
 
-  // Find relevant drugs
-  const matchedDrugs = sampleDrugs.filter(
-    (d) =>
-      d.name.toLowerCase().includes(q) ||
-      d.genericName.toLowerCase().includes(q) ||
-      d.composition.toLowerCase().includes(q) ||
-      d.category.toLowerCase().includes(q)
-  );
-
-  // Find relevant procedures
-  const matchedProcedures = sampleProcedures.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q)
-  );
-
-  // Find relevant diagnostics
-  const matchedDiagnostics = sampleDiagnostics.filter(
-    (d) =>
-      d.name.toLowerCase().includes(q) ||
-      d.type.toLowerCase().includes(q) ||
-      d.category.toLowerCase().includes(q)
-  );
+  const [matchedDrugs, matchedProcedures, matchedDiagnostics] = await Promise.all([
+    prisma.drug.findMany({
+      where: {
+        OR: [
+          { name: { contains: q } },
+          { genericName: { contains: q } },
+          { composition: { contains: q } },
+          { category: { contains: q } },
+        ],
+      },
+      include: { prices: true },
+      take: 8,
+    }),
+    prisma.procedure.findMany({
+      where: {
+        OR: [
+          { name: { contains: q } },
+          { category: { contains: q } },
+        ],
+      },
+      include: { prices: true },
+      take: 5,
+    }),
+    prisma.diagnostic.findMany({
+      where: {
+        OR: [
+          { name: { contains: q } },
+          { type: { contains: q } },
+          { category: { contains: q } },
+        ],
+      },
+      include: { prices: true },
+      take: 5,
+    }),
+  ]);
 
   let context = "";
 
   if (matchedDrugs.length > 0) {
     context += "## Medicine Data:\n";
-    for (const drug of matchedDrugs.slice(0, 8)) {
-      const cheapest = Math.min(...drug.prices.map((p) => p.sellingPrice));
+    for (const drug of matchedDrugs) {
+      const cheapest = drug.prices.length > 0
+        ? Math.min(...drug.prices.map((p: { sellingPrice: number }) => p.sellingPrice))
+        : 0;
       const generic = drug.isGeneric ? "GENERIC" : "BRANDED";
       context += `- **${drug.name}** (${generic}): ${drug.composition}, by ${drug.manufacturer}. `;
       context += `Cheapest: ${formatPrice(cheapest)}. Pack: ${drug.packSize}. `;
-      context += `Uses: ${drug.uses}. Side effects: ${drug.sideEffects}\n`;
+      context += `Uses: ${drug.uses || "N/A"}. Side effects: ${drug.sideEffects || "N/A"}\n`;
 
-      // Find alternatives
       if (!drug.isGeneric) {
-        const alts = sampleDrugs.filter(
-          (d) => d.genericName === drug.genericName && d.isGeneric
-        );
+        const alts = await prisma.drug.findMany({
+          where: { genericName: drug.genericName, isGeneric: true },
+          include: { prices: true },
+        });
         if (alts.length > 0) {
-          const altCheapest = Math.min(
-            ...alts.flatMap((a) => a.prices.map((p) => p.sellingPrice))
-          );
-          const saving = calcSavings(cheapest, altCheapest);
-          context += `  → Generic alternative: ${alts[0].name} at ${formatPrice(altCheapest)} (Save ${saving}%)\n`;
+          const altPrices = alts.flatMap((a: { prices: { sellingPrice: number }[] }) => a.prices.map((p) => p.sellingPrice));
+          if (altPrices.length > 0) {
+            const altCheapest = Math.min(...altPrices);
+            const saving = calcSavings(cheapest, altCheapest);
+            context += `  → Generic alternative: ${alts[0].name} at ${formatPrice(altCheapest)} (Save ${saving}%)\n`;
+          }
         }
       }
     }
@@ -65,10 +79,14 @@ function buildMedicineContext(query: string): string {
 
   if (matchedProcedures.length > 0) {
     context += "\n## Procedure Data:\n";
-    for (const proc of matchedProcedures.slice(0, 5)) {
-      const cheapest = Math.min(...proc.prices.map((p) => p.minPrice));
-      const expensive = Math.max(...proc.prices.map((p) => p.maxPrice));
-      context += `- **${proc.name}**: ${proc.category}. Duration: ${proc.duration}. Recovery: ${proc.recoveryTime}.\n`;
+    for (const proc of matchedProcedures) {
+      const cheapest = proc.prices.length > 0
+        ? Math.min(...proc.prices.map((p: { minPrice: number }) => p.minPrice))
+        : 0;
+      const expensive = proc.prices.length > 0
+        ? Math.max(...proc.prices.map((p: { maxPrice: number }) => p.maxPrice))
+        : 0;
+      context += `- **${proc.name}**: ${proc.category}. Duration: ${proc.duration || "N/A"}. Recovery: ${proc.recoveryTime || "N/A"}.\n`;
       context += `  Price range: ${formatPrice(cheapest)} - ${formatPrice(expensive)}\n`;
       for (const p of proc.prices) {
         context += `  → ${p.hospitalName} (${p.city}): ${formatPrice(p.minPrice)} - ${formatPrice(p.maxPrice)}${p.accreditation ? ` [${p.accreditation}]` : ""}\n`;
@@ -78,10 +96,12 @@ function buildMedicineContext(query: string): string {
 
   if (matchedDiagnostics.length > 0) {
     context += "\n## Diagnostic Data:\n";
-    for (const diag of matchedDiagnostics.slice(0, 5)) {
-      const cheapest = Math.min(...diag.prices.map((p) => p.sellingPrice));
-      context += `- **${diag.name}**: ${diag.type}. ${diag.description}\n`;
-      context += `  Cheapest: ${formatPrice(cheapest)}. Report: ${diag.reportTime}. Home collection: ${diag.homeCollection ? "Yes" : "No"}\n`;
+    for (const diag of matchedDiagnostics) {
+      const cheapest = diag.prices.length > 0
+        ? Math.min(...diag.prices.map((p: { sellingPrice: number }) => p.sellingPrice))
+        : 0;
+      context += `- **${diag.name}**: ${diag.type}. ${diag.description || ""}\n`;
+      context += `  Cheapest: ${formatPrice(cheapest)}. Report: ${diag.reportTime || "N/A"}. Home collection: ${diag.homeCollection ? "Yes" : "No"}\n`;
       for (const p of diag.prices) {
         context += `  → ${p.labName}: ${formatPrice(p.sellingPrice)}${p.accreditation ? ` [${p.accreditation}]` : ""}\n`;
       }
@@ -112,7 +132,7 @@ IMPORTANT: You are NOT a doctor. You provide pricing information and generic alt
 
 // ─── Groq Streaming Chat ───────────────────────────────────────────
 export async function streamMedicineSearch(query: string) {
-  const context = buildMedicineContext(query);
+  const context = await buildMedicineContext(query);
 
   const messages: { role: "system" | "user"; content: string }[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -125,10 +145,7 @@ export async function streamMedicineSearch(query: string) {
     });
   }
 
-  messages.push({
-    role: "user",
-    content: query,
-  });
+  messages.push({ role: "user", content: query });
 
   const stream = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
@@ -154,9 +171,7 @@ export async function analyzePrescriptionImage(
         content: [
           {
             type: "image_url",
-            image_url: {
-              url: `data:${mimeType};base64,${imageBase64}`,
-            },
+            image_url: { url: `data:${mimeType};base64,${imageBase64}` },
           },
           {
             type: "text",

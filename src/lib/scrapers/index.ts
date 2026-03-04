@@ -1,10 +1,25 @@
 import { OneMgScraper } from "./onemg";
 import { PharmEasyScraper } from "./pharmeasy";
+import { NetmedsScraper } from "./netmeds";
+import { ApolloScraper } from "./apollo";
+import { FlipkartHealthScraper } from "./flipkart";
+import { TruemedsScraper } from "./truemeds";
+import { MedPlusScraper } from "./medplus";
+import { AmazonPharmacyScraper } from "./amazon";
 import { ScraperResult } from "./base";
 
 export type { ScrapedDrug, ScraperResult } from "./base";
 
-const scrapers = [new OneMgScraper(), new PharmEasyScraper()];
+const scrapers = [
+  new OneMgScraper(),
+  new PharmEasyScraper(),
+  new NetmedsScraper(),
+  new ApolloScraper(),
+  new FlipkartHealthScraper(),
+  new TruemedsScraper(),
+  new MedPlusScraper(),
+  new AmazonPharmacyScraper(),
+];
 
 /**
  * Search for a drug across all pharmacy sources in parallel.

@@ -11,6 +11,7 @@ datasource db {
 model Drug {
   id              String   @id @default(cuid())
   name            String
+  slug            String   @unique
   genericName     String
   brandName       String?
   manufacturer    String
@@ -36,6 +37,7 @@ model Drug {
   @@index([genericName])
   @@index([name])
   @@index([category])
+  @@index([slug])
 }
 
 model DrugPrice {
@@ -51,6 +53,7 @@ model DrugPrice {
   lastChecked DateTime @default(now())
   createdAt   DateTime @default(now())
 
+  @@unique([drugId, source])
   @@index([drugId])
   @@index([source])
 }
@@ -140,6 +143,20 @@ model DiagnosticPrice {
 
   @@index([diagnosticId])
   @@index([city])
+}
+
+// ─── SYNC TRACKING ──────────────────────────────────────────
+
+model SyncLog {
+  id           String    @id @default(cuid())
+  type         String    // "full", "drug", "batch"
+  status       String    // "running", "completed", "failed"
+  drugsTotal   Int       @default(0)
+  drugsUpdated Int       @default(0)
+  drugsFailed  Int       @default(0)
+  error        String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
 }
 
 // ─── PRESCRIPTION SCAN ───────────────────────────────────────

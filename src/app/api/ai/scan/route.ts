@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzePrescriptionImage } from "@/lib/ai";
-import { sampleDrugs } from "@/lib/sample-data";
+import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -28,14 +28,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Convert to base64
     const bytes = await file.arrayBuffer();
     const base64 = Buffer.from(bytes).toString("base64");
     const mimeType = file.type || "image/jpeg";
 
     const extractedText = await analyzePrescriptionImage(base64, mimeType);
 
-    // Parse extracted medicines
     let extracted: ExtractedMedicine[] = [];
     try {
       const jsonMatch = extractedText.match(/\[[\s\S]*\]/);
@@ -46,7 +44,7 @@ export async function POST(req: NextRequest) {
       console.error("Failed to parse AI response:", extractedText);
     }
 
-    // Match against our database
+    // Match against database
     const results = [];
     const seen = new Set<string>();
 
@@ -54,26 +52,28 @@ export async function POST(req: NextRequest) {
       const nameLower = (med.name || "").toLowerCase();
       const genericLower = (med.genericName || "").toLowerCase();
 
-      const matched = sampleDrugs.find(
-        (d) =>
-          d.name.toLowerCase().includes(nameLower) ||
-          nameLower.includes(d.name.toLowerCase()) ||
-          (genericLower && d.genericName.toLowerCase().includes(genericLower)) ||
-          (genericLower && genericLower.includes(d.genericName.toLowerCase())) ||
-          d.composition.toLowerCase().split(" ").some(
-            (word) => word.length > 3 && nameLower.includes(word.toLowerCase())
-          )
-      );
+      const matched = await prisma.drug.findFirst({
+        where: {
+          OR: [
+            { name: { contains: nameLower } },
+            ...(genericLower ? [{ genericName: { contains: genericLower } }] : []),
+            { composition: { contains: nameLower } },
+          ],
+        },
+        include: { prices: { orderBy: { sellingPrice: "asc" } } },
+      });
 
       if (matched && !seen.has(matched.name)) {
         seen.add(matched.name);
 
-        const alternatives = sampleDrugs.filter(
-          (d) =>
-            d.genericName === matched.genericName &&
-            d.name !== matched.name &&
-            d.isGeneric
-        );
+        const alternatives = await prisma.drug.findMany({
+          where: {
+            genericName: matched.genericName,
+            NOT: { id: matched.id },
+            isGeneric: true,
+          },
+          include: { prices: { orderBy: { sellingPrice: "asc" } } },
+        });
 
         results.push({
           extractedName: med.name,
