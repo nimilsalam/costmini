@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/Navbar";
@@ -27,12 +27,33 @@ export const metadata: Metadata = {
     "lab test prices",
     "affordable healthcare",
   ],
+  manifest: "/manifest.json",
   openGraph: {
     title: "CostMini - India's Transparent Healthcare Pricing",
     description:
       "Scan any prescription. Get cheaper, quality alternatives instantly.",
     type: "website",
+    siteName: "CostMini",
+    locale: "en_IN",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "CostMini - Stop Overpaying for Healthcare",
+    description: "Scan prescriptions. Find cheaper generics. Save up to 80%.",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "default",
+    "apple-mobile-web-app-title": "CostMini",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0D9488",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({
