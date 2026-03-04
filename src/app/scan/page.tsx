@@ -1,120 +1,140 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Camera, Upload, Scan, Loader2, AlertCircle, Share2, Pill, ArrowRight } from "lucide-react";
+import {
+  Camera,
+  Upload,
+  Scan,
+  Loader2,
+  AlertCircle,
+  Share2,
+  Pill,
+  ArrowRight,
+  Sparkles,
+  Clock,
+} from "lucide-react";
 import Link from "next/link";
 import { sampleDrugs } from "@/lib/sample-data";
 import { formatPrice, calcSavings, whatsappShareUrl } from "@/lib/utils";
 
 interface ScanResult {
   extractedName: string;
+  extractedGeneric: string | null;
+  dosage: string | null;
+  frequency: string | null;
+  duration: string | null;
   matchedDrug: (typeof sampleDrugs)[0] | null;
   alternatives: (typeof sampleDrugs)[0][];
   confidence: number;
 }
 
 export default function ScanPage() {
-  const [status, setStatus] = useState<"idle" | "uploading" | "processing" | "done" | "error">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "uploading" | "processing" | "done" | "error"
+  >("idle");
   const [results, setResults] = useState<ScanResult[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [scanMethod, setScanMethod] = useState<"ai" | "ocr" | "demo">("ai");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const processImage = useCallback(async (file: File) => {
-    setStatus("uploading");
-    setPreviewUrl(URL.createObjectURL(file));
-    setErrorMsg("");
+  const processWithAI = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append("image", file);
 
-    try {
-      setStatus("processing");
+    const res = await fetch("/api/ai/scan", {
+      method: "POST",
+      body: formData,
+    });
 
-      // Use Tesseract.js for OCR
-      const Tesseract = await import("tesseract.js");
-      const { data } = await Tesseract.recognize(file, "eng", {
-        logger: () => {},
-      });
-
-      const text = data.text;
-      if (!text.trim()) {
-        setErrorMsg("Could not read text from the image. Please try a clearer photo.");
-        setStatus("error");
-        return;
-      }
-
-      // Match extracted text against our drug database
-      const extractedLines = text
-        .split("\n")
-        .map((l: string) => l.trim())
-        .filter((l: string) => l.length > 2);
-
-      const matchedResults: ScanResult[] = [];
-
-      for (const line of extractedLines) {
-        const lineLower = line.toLowerCase();
-        // Try to match against drug names, generic names, or compositions
-        const matched = sampleDrugs.find(
-          (d) =>
-            lineLower.includes(d.name.toLowerCase()) ||
-            lineLower.includes(d.genericName.toLowerCase()) ||
-            d.composition.toLowerCase().split(" ").some((word) => word.length > 3 && lineLower.includes(word.toLowerCase()))
-        );
-
-        if (matched) {
-          const alternatives = sampleDrugs.filter(
-            (d) =>
-              d.genericName === matched.genericName &&
-              d.name !== matched.name &&
-              d.isGeneric
-          );
-
-          matchedResults.push({
-            extractedName: line,
-            matchedDrug: matched,
-            alternatives,
-            confidence: 0.85,
-          });
-        }
-      }
-
-      // If no matches, try fuzzy matching on just the known drug names
-      if (matchedResults.length === 0) {
-        const textLower = text.toLowerCase();
-        for (const drug of sampleDrugs) {
-          if (
-            textLower.includes(drug.name.toLowerCase()) ||
-            textLower.includes(drug.genericName.toLowerCase())
-          ) {
-            const alternatives = sampleDrugs.filter(
-              (d) =>
-                d.genericName === drug.genericName &&
-                d.name !== drug.name &&
-                d.isGeneric
-            );
-            matchedResults.push({
-              extractedName: drug.name,
-              matchedDrug: drug,
-              alternatives,
-              confidence: 0.7,
-            });
-          }
-        }
-      }
-
-      // Deduplicate by drug name
-      const seen = new Set<string>();
-      const unique = matchedResults.filter((r) => {
-        if (!r.matchedDrug || seen.has(r.matchedDrug.name)) return false;
-        seen.add(r.matchedDrug.name);
-        return true;
-      });
-
-      setResults(unique);
-      setStatus("done");
-    } catch {
-      setErrorMsg("Error processing image. Please try again.");
-      setStatus("error");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Scan failed" }));
+      throw new Error(err.error || "AI scan failed");
     }
+
+    const data = await res.json();
+    return data.results as ScanResult[];
   }, []);
+
+  const processWithOCR = useCallback(async (file: File) => {
+    const Tesseract = await import("tesseract.js");
+    const { data } = await Tesseract.recognize(file, "eng", {
+      logger: () => {},
+    });
+
+    const text = data.text;
+    if (!text.trim()) {
+      throw new Error("Could not read text from the image.");
+    }
+
+    const matchedResults: ScanResult[] = [];
+    const textLower = text.toLowerCase();
+
+    for (const drug of sampleDrugs) {
+      if (
+        textLower.includes(drug.name.toLowerCase()) ||
+        textLower.includes(drug.genericName.toLowerCase())
+      ) {
+        const alternatives = sampleDrugs.filter(
+          (d) =>
+            d.genericName === drug.genericName &&
+            d.name !== drug.name &&
+            d.isGeneric
+        );
+        matchedResults.push({
+          extractedName: drug.name,
+          extractedGeneric: drug.genericName,
+          dosage: null,
+          frequency: null,
+          duration: null,
+          matchedDrug: drug,
+          alternatives,
+          confidence: 0.7,
+        });
+      }
+    }
+
+    // Deduplicate
+    const seen = new Set<string>();
+    return matchedResults.filter((r) => {
+      if (!r.matchedDrug || seen.has(r.matchedDrug.name)) return false;
+      seen.add(r.matchedDrug.name);
+      return true;
+    });
+  }, []);
+
+  const processImage = useCallback(
+    async (file: File) => {
+      setStatus("uploading");
+      setPreviewUrl(URL.createObjectURL(file));
+      setErrorMsg("");
+
+      try {
+        setStatus("processing");
+
+        let scanResults: ScanResult[];
+
+        // Try AI first, fall back to OCR
+        try {
+          scanResults = await processWithAI(file);
+          setScanMethod("ai");
+        } catch {
+          console.log("AI scan unavailable, falling back to OCR");
+          scanResults = await processWithOCR(file);
+          setScanMethod("ocr");
+        }
+
+        setResults(scanResults);
+        setStatus("done");
+      } catch {
+        setErrorMsg(
+          "Could not analyze the prescription. Please try a clearer photo."
+        );
+        setStatus("error");
+      }
+    },
+    [processWithAI, processWithOCR]
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -122,34 +142,46 @@ export default function ScanPage() {
   };
 
   const handleDemoScan = () => {
-    // Demo mode - simulate scan results
     setStatus("processing");
     setPreviewUrl(null);
+    setScanMethod("demo");
     setTimeout(() => {
       const demoResults: ScanResult[] = [
         {
           extractedName: "Tab Dolo 650 (1 strip)",
-          matchedDrug: sampleDrugs[0], // Dolo 650
+          extractedGeneric: "Paracetamol",
+          dosage: "650mg",
+          frequency: "1-0-1",
+          duration: "5 days",
+          matchedDrug: sampleDrugs[0],
           alternatives: sampleDrugs.filter(
             (d) => d.genericName === "Paracetamol" && d.isGeneric
+          ),
+          confidence: 0.95,
+        },
+        {
+          extractedName: "Tab Azithral 500 (1 strip)",
+          extractedGeneric: "Azithromycin",
+          dosage: "500mg",
+          frequency: "1-0-0",
+          duration: "3 days",
+          matchedDrug: sampleDrugs[2],
+          alternatives: sampleDrugs.filter(
+            (d) => d.genericName === "Azithromycin" && d.isGeneric
           ),
           confidence: 0.92,
         },
         {
-          extractedName: "Tab Azithral 500 (1 strip)",
-          matchedDrug: sampleDrugs[2], // Azithral 500
-          alternatives: sampleDrugs.filter(
-            (d) => d.genericName === "Azithromycin" && d.isGeneric
-          ),
-          confidence: 0.88,
-        },
-        {
           extractedName: "Tab Pan 40 (1 strip)",
-          matchedDrug: sampleDrugs[4], // Pan 40
+          extractedGeneric: "Pantoprazole",
+          dosage: "40mg",
+          frequency: "1-0-0",
+          duration: "7 days",
+          matchedDrug: sampleDrugs[4],
           alternatives: sampleDrugs.filter(
             (d) => d.genericName === "Pantoprazole" && d.isGeneric
           ),
-          confidence: 0.9,
+          confidence: 0.93,
         },
       ];
       setResults(demoResults);
@@ -173,17 +205,21 @@ export default function ScanPage() {
     return sum + cheapest;
   }, 0);
 
-  const totalSavings = totalBrandCost > 0 ? calcSavings(totalBrandCost, totalGenericCost) : 0;
+  const totalSavings =
+    totalBrandCost > 0 ? calcSavings(totalBrandCost, totalGenericCost) : 0;
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Scan Your Prescription
-        </h1>
+        <div className="flex items-center justify-center gap-2 mb-2">
+          <Sparkles size={24} className="text-[var(--color-primary)]" />
+          <h1 className="text-3xl font-bold text-gray-900">
+            AI Prescription Scanner
+          </h1>
+        </div>
         <p className="text-gray-500 max-w-xl mx-auto">
-          Take a photo or upload your prescription. Our AI will find cheaper,
-          quality-certified generic alternatives instantly.
+          Upload your prescription photo. Our AI reads handwriting, identifies
+          medicines, and instantly finds cheaper generic alternatives.
         </p>
       </div>
 
@@ -201,6 +237,14 @@ export default function ScanPage() {
             <p className="text-sm text-gray-500">
               Click to upload or drag and drop (JPG, PNG, PDF)
             </p>
+            <div className="flex items-center justify-center gap-4 mt-4">
+              <span className="flex items-center gap-1 text-xs text-teal-600 bg-teal-50 px-3 py-1 rounded-full">
+                <Sparkles size={12} /> AI-Powered
+              </span>
+              <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                <Clock size={12} /> ~5 seconds
+              </span>
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -267,10 +311,10 @@ export default function ScanPage() {
           <p className="text-gray-700 font-medium">
             {status === "uploading"
               ? "Uploading image..."
-              : "Analyzing prescription with AI..."}
+              : "AI is analyzing your prescription..."}
           </p>
           <p className="text-sm text-gray-500 mt-1">
-            Extracting medicine names and finding alternatives
+            Reading medicine names, dosages, and finding alternatives
           </p>
         </div>
       )}
@@ -295,6 +339,15 @@ export default function ScanPage() {
       {/* Results */}
       {status === "done" && (
         <div className="space-y-6">
+          {/* Scan method badge */}
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-xs px-3 py-1 rounded-full bg-teal-50 text-teal-700 font-medium">
+              {scanMethod === "ai" && "Analyzed by Gemini AI"}
+              {scanMethod === "ocr" && "Analyzed by OCR Engine"}
+              {scanMethod === "demo" && "Demo Results"}
+            </span>
+          </div>
+
           {/* Summary Card */}
           {results.length > 0 && totalSavings > 0 && (
             <div className="bg-gradient-to-r from-green-500 to-teal-500 rounded-2xl p-6 text-white text-center">
@@ -326,11 +379,10 @@ export default function ScanPage() {
 
           {/* Medicine Results */}
           {results.map((result, i) => {
-            if (!result.matchedDrug) return null;
             const drug = result.matchedDrug;
-            const brandPrice = Math.min(
-              ...drug.prices.map((p) => p.sellingPrice)
-            );
+            const brandPrice = drug
+              ? Math.min(...drug.prices.map((p) => p.sellingPrice))
+              : 0;
 
             return (
               <div
@@ -340,22 +392,50 @@ export default function ScanPage() {
                 <div className="p-5 border-b border-gray-100">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-xs text-gray-400 mb-1">
-                        Detected from prescription
-                      </p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-xs text-gray-400">
+                          From prescription
+                        </p>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                          {Math.round(result.confidence * 100)}% match
+                        </span>
+                      </div>
                       <h3 className="text-lg font-bold text-gray-900">
-                        {drug.name}
+                        {drug ? drug.name : result.extractedName}
                       </h3>
                       <p className="text-sm text-gray-500">
-                        {drug.composition} &middot; {drug.manufacturer}
+                        {drug
+                          ? `${drug.composition} · ${drug.manufacturer}`
+                          : result.extractedGeneric || "Not found in database"}
                       </p>
+                      {(result.dosage || result.frequency || result.duration) && (
+                        <div className="flex gap-3 mt-2">
+                          {result.dosage && (
+                            <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700">
+                              {result.dosage}
+                            </span>
+                          )}
+                          {result.frequency && (
+                            <span className="text-xs px-2 py-1 rounded bg-purple-50 text-purple-700">
+                              {result.frequency}
+                            </span>
+                          )}
+                          {result.duration && (
+                            <span className="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700">
+                              {result.duration}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-400">Brand Price</p>
-                      <p className="text-xl font-bold text-gray-900">
-                        {formatPrice(brandPrice)}
-                      </p>
-                    </div>
+                    {drug && (
+                      <div className="text-right">
+                        <p className="text-sm text-gray-400">Brand Price</p>
+                        <p className="text-xl font-bold text-gray-900">
+                          {formatPrice(brandPrice)}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -381,7 +461,7 @@ export default function ScanPage() {
                               {alt.name}
                             </span>
                             <p className="text-xs text-gray-500">
-                              {alt.manufacturer} &middot; {alt.packSize}
+                              {alt.manufacturer} · {alt.packSize}
                             </p>
                           </div>
                           <div className="text-right flex items-center gap-3">
@@ -393,14 +473,20 @@ export default function ScanPage() {
                                 Save {savePct}%
                               </p>
                             </div>
-                            <ArrowRight
-                              size={16}
-                              className="text-gray-400"
-                            />
+                            <ArrowRight size={16} className="text-gray-400" />
                           </div>
                         </Link>
                       );
                     })}
+                  </div>
+                )}
+
+                {!drug && (
+                  <div className="p-4 bg-amber-50">
+                    <p className="text-sm text-amber-700">
+                      This medicine is not yet in our database. We&apos;re
+                      expanding coverage regularly.
+                    </p>
                   </div>
                 )}
               </div>
@@ -410,14 +496,14 @@ export default function ScanPage() {
           {results.length === 0 && (
             <div className="text-center py-8">
               <p className="text-gray-500">
-                No medicines could be matched from this image. Try a clearer
-                photo or search manually.
+                No medicines could be identified. Try a clearer photo or search
+                manually.
               </p>
               <Link
-                href="/medicines"
+                href="/search"
                 className="inline-block mt-4 px-6 py-2 rounded-lg bg-[var(--color-primary)] text-white font-medium"
               >
-                Search Medicines
+                AI Search
               </Link>
             </div>
           )}
@@ -437,14 +523,14 @@ export default function ScanPage() {
             {results.length > 0 && (
               <a
                 href={whatsappShareUrl(
-                  `💊 CostMini Prescription Scan Results!\n\nI can save ${totalSavings}% (${formatPrice(totalBrandCost - totalGenericCost)}) by switching to generics.\n\nScan your prescription: costmini.in/scan`
+                  `💊 CostMini AI Scan Results!\n\nI can save ${totalSavings}% (${formatPrice(totalBrandCost - totalGenericCost)}) by switching to generics.\n\nScan your prescription: costmini.in/scan`
                 )}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 px-6 py-3 rounded-xl bg-green-500 text-white font-medium hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
               >
                 <Share2 size={18} />
-                Share Results on WhatsApp
+                Share on WhatsApp
               </a>
             )}
           </div>

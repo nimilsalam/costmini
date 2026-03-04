@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, X, Scan, Pill, Stethoscope, TestTube, Search } from "lucide-react";
+import { Menu, X, Scan, Pill, Stethoscope, TestTube, Search, Sparkles } from "lucide-react";
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
@@ -46,9 +46,10 @@ export function Navbar() {
           <div className="hidden md:flex items-center gap-3">
             <Link
               href="/search"
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-teal-50 transition-colors border border-gray-200"
             >
-              <Search size={20} className="text-gray-500" />
+              <Sparkles size={14} className="text-[var(--color-primary)]" />
+              <span className="text-sm font-medium text-gray-600">AI Search</span>
             </Link>
             <Link
               href="/scan"
