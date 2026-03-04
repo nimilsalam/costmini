@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Pill, Stethoscope, TestTube, Scan, TrendingDown, Shield, Share2 } from "lucide-react";
+import { Pill, Stethoscope, TestTube, Scan, TrendingDown, Shield, Share2, Sparkles, Search } from "lucide-react";
 
 const categories = [
   {
@@ -27,7 +27,7 @@ const categories = [
     href: "/scan",
     icon: Scan,
     title: "Scan Prescription",
-    description: "Upload any prescription. Get cheaper, quality alternatives instantly.",
+    description: "Upload any prescription. AI reads it and finds cheaper alternatives.",
     color: "bg-amber-50 text-amber-600",
   },
 ];
@@ -42,27 +42,27 @@ const stats = [
 const howItWorks = [
   {
     step: "1",
-    icon: Scan,
-    title: "Scan or Search",
-    description: "Take a photo of your prescription or search for any medicine, surgery, or lab test.",
+    icon: Search,
+    title: "Ask or Scan",
+    description: "Type any health query in AI search, or snap a photo of your prescription.",
   },
   {
     step: "2",
-    icon: TrendingDown,
-    title: "Compare Prices",
-    description: "See transparent cost breakdowns from multiple sources — generic vs branded, across pharmacies.",
+    icon: Sparkles,
+    title: "AI Analyzes",
+    description: "Our AI reads your prescription, identifies medicines, and searches for alternatives.",
   },
   {
     step: "3",
-    icon: Shield,
-    title: "Get Quality Options",
-    description: "Every alternative we show is from licensed, WHO-GMP certified manufacturers.",
+    icon: TrendingDown,
+    title: "Compare & Save",
+    description: "See transparent prices — generic vs branded, across pharmacies and hospitals.",
   },
   {
     step: "4",
     icon: Share2,
-    title: "Save & Share",
-    description: "Save your results and share via WhatsApp to help family and friends save too.",
+    title: "Share on WhatsApp",
+    description: "Share savings with family and friends. Help others stop overpaying too.",
   },
 ];
 
@@ -78,31 +78,46 @@ export default function Home() {
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-sm font-medium mb-6">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              India&apos;s first transparent healthcare pricing
+              <Sparkles size={14} />
+              AI-powered healthcare pricing — Ask anything
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
               Stop Overpaying for{" "}
               <span className="text-teal-200">Healthcare</span>
             </h1>
             <p className="text-lg sm:text-xl text-teal-100 mb-8 leading-relaxed max-w-2xl">
-              Scan any prescription to find cheaper, quality-certified generic
-              alternatives. Compare medicine, surgery, and diagnostic prices
-              across India — save up to 80%.
+              Ask about medicine prices, scan prescriptions with AI, compare
+              surgery costs — like Perplexity, but for Indian healthcare. Save
+              up to 80%.
             </p>
+
+            {/* AI Search Bar */}
+            <div className="mb-6">
+              <Link
+                href="/search"
+                className="flex items-center gap-3 w-full max-w-xl px-5 py-4 rounded-2xl bg-white/10 border border-white/20 hover:bg-white/15 transition-all group"
+              >
+                <Sparkles size={20} className="text-teal-200 group-hover:text-white transition-colors" />
+                <span className="text-teal-200 group-hover:text-white transition-colors">
+                  Ask about medicines, surgery costs, lab tests...
+                </span>
+              </Link>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 href="/scan"
-                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-white text-teal-700 font-semibold text-lg hover:bg-teal-50 transition-colors shadow-lg animate-pulse-glow"
+                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-white text-teal-700 font-semibold text-lg hover:bg-teal-50 transition-colors shadow-lg"
               >
                 <Scan size={22} />
-                Scan Prescription Now
+                Scan Prescription
               </Link>
               <Link
-                href="/medicines"
+                href="/search"
                 className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-white/15 text-white font-semibold text-lg hover:bg-white/25 transition-colors border border-white/20"
               >
-                Search Medicines
+                <Sparkles size={20} />
+                AI Search
               </Link>
             </div>
           </div>
@@ -121,6 +136,72 @@ export default function Home() {
                 <div className="text-sm text-gray-500 mt-1">{s.label}</div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* AI Feature Highlight */}
+      <section className="bg-gradient-to-br from-gray-50 to-teal-50/30 py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-100 text-teal-700 text-sm font-medium mb-4">
+                <Sparkles size={14} />
+                Powered by Groq AI
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+                Ask Anything About Healthcare Costs
+              </h2>
+              <p className="text-gray-500 text-lg mb-6 leading-relaxed">
+                Like having a pharmacist friend who knows every medicine price in
+                India. Ask in plain language — our AI searches real pricing data
+                and gives you honest, helpful answers.
+              </p>
+              <div className="space-y-3">
+                {[
+                  "What's the cheapest paracetamol available?",
+                  "How much does knee replacement cost in Delhi?",
+                  "Compare Dolo 650 vs generic alternatives",
+                ].map((q, i) => (
+                  <Link
+                    key={i}
+                    href={`/search`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-[var(--color-primary)] hover:shadow-sm transition-all text-sm text-gray-700"
+                  >
+                    <Search size={16} className="text-gray-400 flex-shrink-0" />
+                    {q}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-[var(--color-primary)] flex items-center justify-center">
+                  <Sparkles size={14} className="text-white" />
+                </div>
+                <span className="font-semibold text-gray-900 text-sm">CostMini AI</span>
+              </div>
+              <div className="space-y-3 text-sm text-gray-700">
+                <p>
+                  <strong className="text-gray-900">Dolo 650</strong> (Branded) costs{" "}
+                  <strong className="text-[var(--color-primary)]">₹29</strong> for 15 tablets.
+                </p>
+                <p>
+                  The generic alternative —{" "}
+                  <strong className="text-gray-900">Paracetamol 650mg (Jan Aushadhi)</strong>{" "}
+                  — costs just{" "}
+                  <strong className="text-green-600">₹6</strong> for 10 tablets.
+                </p>
+                <p className="text-green-700 font-semibold">
+                  That&apos;s ~80% savings with the same active ingredient!
+                </p>
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-xs text-gray-400">
+                    Both are WHO-GMP certified. Always consult your doctor before switching.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -198,9 +279,8 @@ export default function Home() {
             Your Prescription Could Cost 80% Less
           </h2>
           <p className="text-teal-100 text-lg mb-8 max-w-2xl mx-auto">
-            Take a photo of any prescription or medical report. Our AI
-            instantly finds cheaper, quality-certified alternatives from
-            trusted manufacturers.
+            Snap a photo of any prescription. Our AI instantly reads it, finds
+            cheaper alternatives, and shows you exactly how much you can save.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
@@ -209,6 +289,13 @@ export default function Home() {
             >
               <Scan size={22} />
               Scan Now — It&apos;s Free
+            </Link>
+            <Link
+              href="/search"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white/15 text-white font-bold text-lg hover:bg-white/25 transition-colors border border-white/20"
+            >
+              <Sparkles size={20} />
+              Try AI Search
             </Link>
           </div>
         </div>

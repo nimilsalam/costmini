@@ -5,12 +5,6 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || "",
 });
 
-// Google Gemini client — lazy import to avoid bundling issues
-async function getGeminiClient() {
-  const { GoogleGenAI } = await import("@google/genai");
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-}
-
 // ─── Medicine Knowledge Base ───────────────────────────────────────
 import { sampleDrugs, sampleProcedures, sampleDiagnostics } from "./sample-data";
 import { formatPrice, calcSavings } from "./utils";
@@ -147,26 +141,25 @@ export async function streamMedicineSearch(query: string) {
   return stream;
 }
 
-// ─── Gemini Vision for Prescription Scanning ───────────────────────
+// ─── Groq Vision for Prescription Scanning ─────────────────────────
 export async function analyzePrescriptionImage(
   imageBase64: string,
   mimeType: string
 ): Promise<string> {
-  const genai = await getGeminiClient();
-
-  const result = await genai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
+  const response = await groq.chat.completions.create({
+    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+    messages: [
       {
         role: "user",
-        parts: [
+        content: [
           {
-            inlineData: {
-              data: imageBase64,
-              mimeType: mimeType,
+            type: "image_url",
+            image_url: {
+              url: `data:${mimeType};base64,${imageBase64}`,
             },
           },
           {
+            type: "text",
             text: `You are a medical prescription reader for CostMini, India's healthcare pricing platform.
 
 Analyze this prescription image and extract ALL medicines mentioned. For each medicine found, output a JSON array with this exact format:
@@ -191,37 +184,6 @@ Rules:
         ],
       },
     ],
-  });
-
-  return result.text || "[]";
-}
-
-// ─── Groq Vision Fallback ──────────────────────────────────────────
-export async function analyzePrescriptionGroq(
-  imageBase64: string,
-  mimeType: string
-): Promise<string> {
-  const response = await groq.chat.completions.create({
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:${mimeType};base64,${imageBase64}`,
-            },
-          },
-          {
-            type: "text",
-            text: `Extract ALL medicine names from this prescription image. Return a JSON array:
-[{"name": "medicine name", "genericName": "generic name if known", "dosage": "dosage", "frequency": "frequency", "duration": "duration"}]
-Return ONLY valid JSON. If no medicines found, return [].`,
-          },
-        ],
-      },
-    ],
     temperature: 0.1,
     max_tokens: 1024,
   });
@@ -229,4 +191,4 @@ Return ONLY valid JSON. If no medicines found, return [].`,
   return response.choices[0]?.message?.content || "[]";
 }
 
-export { groq, getGeminiClient };
+export { groq };

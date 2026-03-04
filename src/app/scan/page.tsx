@@ -342,7 +342,7 @@ export default function ScanPage() {
           {/* Scan method badge */}
           <div className="flex items-center justify-center gap-2">
             <span className="text-xs px-3 py-1 rounded-full bg-teal-50 text-teal-700 font-medium">
-              {scanMethod === "ai" && "Analyzed by Gemini AI"}
+              {scanMethod === "ai" && "Analyzed by Groq AI"}
               {scanMethod === "ocr" && "Analyzed by OCR Engine"}
               {scanMethod === "demo" && "Demo Results"}
             </span>

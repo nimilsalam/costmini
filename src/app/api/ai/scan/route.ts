@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { analyzePrescriptionImage, analyzePrescriptionGroq } from "@/lib/ai";
+import { analyzePrescriptionImage } from "@/lib/ai";
 import { sampleDrugs } from "@/lib/sample-data";
 
 export const runtime = "nodejs";
@@ -21,36 +21,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
     }
 
+    if (!process.env.GROQ_API_KEY) {
+      return NextResponse.json(
+        { error: "AI vision not configured. Set GROQ_API_KEY." },
+        { status: 503 }
+      );
+    }
+
     // Convert to base64
     const bytes = await file.arrayBuffer();
     const base64 = Buffer.from(bytes).toString("base64");
     const mimeType = file.type || "image/jpeg";
 
-    let extractedText = "[]";
-
-    // Try Gemini first, then Groq fallback
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        extractedText = await analyzePrescriptionImage(base64, mimeType);
-      } catch (geminiError) {
-        console.error("Gemini vision failed, trying Groq:", geminiError);
-        if (process.env.GROQ_API_KEY) {
-          extractedText = await analyzePrescriptionGroq(base64, mimeType);
-        }
-      }
-    } else if (process.env.GROQ_API_KEY) {
-      extractedText = await analyzePrescriptionGroq(base64, mimeType);
-    } else {
-      return NextResponse.json(
-        { error: "No AI vision API configured. Set GEMINI_API_KEY or GROQ_API_KEY." },
-        { status: 503 }
-      );
-    }
+    const extractedText = await analyzePrescriptionImage(base64, mimeType);
 
     // Parse extracted medicines
     let extracted: ExtractedMedicine[] = [];
     try {
-      // Find JSON array in the response
       const jsonMatch = extractedText.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         extracted = JSON.parse(jsonMatch[0]);
@@ -67,7 +54,6 @@ export async function POST(req: NextRequest) {
       const nameLower = (med.name || "").toLowerCase();
       const genericLower = (med.genericName || "").toLowerCase();
 
-      // Find matching drug
       const matched = sampleDrugs.find(
         (d) =>
           d.name.toLowerCase().includes(nameLower) ||
@@ -82,7 +68,6 @@ export async function POST(req: NextRequest) {
       if (matched && !seen.has(matched.name)) {
         seen.add(matched.name);
 
-        // Find generic alternatives
         const alternatives = sampleDrugs.filter(
           (d) =>
             d.genericName === matched.genericName &&
@@ -101,7 +86,6 @@ export async function POST(req: NextRequest) {
           confidence: 0.9,
         });
       } else if (!matched) {
-        // Include unmatched medicines too
         results.push({
           extractedName: med.name,
           extractedGeneric: med.genericName || null,
@@ -117,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      provider: process.env.GEMINI_API_KEY ? "gemini" : "groq",
+      provider: "groq",
       extracted: extracted.length,
       matched: results.filter((r) => r.matchedDrug).length,
       results,
