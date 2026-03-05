@@ -35,7 +35,6 @@ async function main() {
   await prisma.scanResult.deleteMany();
   await prisma.prescriptionScan.deleteMany();
   await prisma.drugAlternative.deleteMany();
-  await prisma.priceHistory.deleteMany();
   await prisma.drugPrice.deleteMany();
   await prisma.drug.deleteMany();
   await prisma.manufacturer.deleteMany();
@@ -111,6 +110,7 @@ async function main() {
   // Seed drugs
   const drugIds: Record<string, string> = {};
   let linkedCount = 0;
+  let totalPriceCount = 0;
   for (const d of sampleDrugs) {
     const slug = uniqueSlug(d.name, d.slug);
     const mfrId = findManufacturerId(d.manufacturer);
@@ -137,7 +137,7 @@ async function main() {
     });
     drugIds[d.name] = drug.id;
 
-    // Add prices
+    // Add prices from sample data
     for (const p of d.prices) {
       await prisma.drugPrice.create({
         data: {
@@ -152,6 +152,66 @@ async function main() {
           inStock: p.inStock,
         },
       });
+      totalPriceCount++;
+    }
+
+    // Auto-fill prices for pharmacies not in sample data
+    const ALL_PHARMACIES = [
+      { name: "1mg", minDiscount: 10, maxDiscount: 20 },
+      { name: "PharmEasy", minDiscount: 12, maxDiscount: 22 },
+      { name: "Netmeds", minDiscount: 8, maxDiscount: 18 },
+      { name: "Apollo", minDiscount: 5, maxDiscount: 15 },
+      { name: "Flipkart Health", minDiscount: 15, maxDiscount: 25 },
+      { name: "Truemeds", minDiscount: 20, maxDiscount: 40 },
+      { name: "MedPlus", minDiscount: 5, maxDiscount: 12 },
+      { name: "Amazon Pharmacy", minDiscount: 10, maxDiscount: 20 },
+    ];
+
+    const existingSources = new Set(d.prices.map((p: { source: string }) => p.source));
+    const baseMrp = d.prices[0]?.mrp || 100;
+
+    for (const pharmacy of ALL_PHARMACIES) {
+      if (existingSources.has(pharmacy.name)) continue;
+
+      // Generate a deterministic but varied discount based on drug name + pharmacy
+      const hash = (d.name + pharmacy.name).split("").reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
+      const discountRange = pharmacy.maxDiscount - pharmacy.minDiscount;
+      const discount = pharmacy.minDiscount + (hash % (discountRange + 1));
+      const sellingPrice = Math.round(baseMrp * (1 - discount / 100) * 100) / 100;
+
+      // 85-95% chance of being in stock (deterministic)
+      const inStock = (hash % 20) !== 0;
+
+      await prisma.drugPrice.create({
+        data: {
+          drugId: drug.id,
+          source: pharmacy.name,
+          mrp: baseMrp,
+          sellingPrice,
+          discount,
+          inStock,
+        },
+      });
+      totalPriceCount++;
+    }
+
+    // Add JanAushadhi for generic drugs (government pharmacy, 50-80% cheaper)
+    if (d.isGeneric && !existingSources.has("JanAushadhi")) {
+      const hash = (d.name + "JanAushadhi").split("").reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
+      const discount = 50 + (hash % 31); // 50-80% discount
+      const sellingPrice = Math.round(baseMrp * (1 - discount / 100) * 100) / 100;
+
+      await prisma.drugPrice.create({
+        data: {
+          drugId: drug.id,
+          source: "JanAushadhi",
+          mrp: baseMrp,
+          sellingPrice,
+          discount,
+          inStock: true,
+        },
+      });
+      totalPriceCount++;
     }
   }
 
@@ -239,7 +299,8 @@ async function main() {
   }
 
   console.log("Seeded:");
-  console.log(`  - ${sampleDrugs.length} drugs with prices (${linkedCount} linked to manufacturers)`);
+  console.log(`  - ${sampleDrugs.length} drugs with ${totalPriceCount} total prices (${linkedCount} linked to manufacturers)`);
+  console.log(`  - All drugs have prices from 8 pharmacies + JanAushadhi for generics`);
   console.log(`  - ${sampleProcedures.length} procedures with hospital prices`);
   console.log(`  - ${sampleDiagnostics.length} diagnostics with lab prices`);
   console.log("Done!");

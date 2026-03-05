@@ -60,7 +60,6 @@ model Drug {
   updatedAt       DateTime @updatedAt
 
   prices        DrugPrice[]
-  priceHistory  PriceHistory[]
   alternatives  DrugAlternative[] @relation("OriginalDrug")
   alternativeOf DrugAlternative[] @relation("AlternativeDrug")
   scanResults   ScanResult[]
@@ -175,21 +174,6 @@ model DiagnosticPrice {
 
   @@index([diagnosticId])
   @@index([city])
-}
-
-// ─── PRICE HISTORY ─────────────────────────────────────────
-
-model PriceHistory {
-  id           String   @id @default(cuid())
-  drugId       String
-  drug         Drug     @relation(fields: [drugId], references: [id])
-  source       String
-  sellingPrice Float
-  mrp          Float
-  recordedAt   DateTime @default(now())
-
-  @@index([drugId, source])
-  @@index([recordedAt])
 }
 
 // ─── SYNC TRACKING ──────────────────────────────────────────

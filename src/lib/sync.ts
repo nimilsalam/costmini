@@ -80,16 +80,6 @@ export async function refreshDrugPrices(
           },
         });
 
-        // Record price history for trend tracking
-        await prisma.priceHistory.create({
-          data: {
-            drugId: drug.id,
-            source: result.source,
-            sellingPrice: match.sellingPrice,
-            mrp: match.mrp,
-          },
-        }).catch(() => {}); // Don't fail sync if history recording fails
-
         updated++;
       } catch (err) {
         errors.push(

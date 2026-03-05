@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { Search, Pill, ArrowDownUp, Shield, Share2, Loader2, SlidersHorizontal, CheckCircle, X, Star } from "lucide-react";
-import { drugCategories } from "@/lib/constants";
+import { Search, Pill, ArrowDownUp, Shield, Share2, Loader2, SlidersHorizontal, CheckCircle, X, Star, Building2, Store, Percent, Sparkles } from "lucide-react";
+import { drugCategories, dosageForms, pharmacyNames, manufacturerTiers, discountRanges } from "@/lib/constants";
 import { formatPrice, calcSavings, whatsappShareUrl } from "@/lib/utils";
 import SearchAutocomplete from "@/components/SearchAutocomplete";
 
@@ -40,7 +40,7 @@ interface Drug {
   } | null;
 }
 
-type SortOption = "name" | "price-low" | "price-high" | "savings" | "sources";
+type SortOption = "name" | "price-low" | "price-high" | "savings" | "sources" | "best-value" | "discount";
 
 export default function MedicinesPage() {
   const [query, setQuery] = useState("");
@@ -48,8 +48,13 @@ export default function MedicinesPage() {
   const [showGenericOnly, setShowGenericOnly] = useState(false);
   const [showInStockOnly, setShowInStockOnly] = useState(false);
   const [showWhoCertified, setShowWhoCertified] = useState(false);
+  const [dosageForm, setDosageForm] = useState("All");
+  const [mfrTier, setMfrTier] = useState("All");
+  const [selectedPharmacy, setSelectedPharmacy] = useState("All");
+  const [minDiscount, setMinDiscount] = useState("0");
+  const [showRxOnly, setShowRxOnly] = useState<"all" | "otc" | "rx">("all");
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000]);
-  const [sortBy, setSortBy] = useState<SortOption>("price-low");
+  const [sortBy, setSortBy] = useState<SortOption>("best-value");
   const [showFilters, setShowFilters] = useState(false);
   const [drugs, setDrugs] = useState<Drug[]>([]);
   const [total, setTotal] = useState(0);
@@ -65,6 +70,11 @@ export default function MedicinesPage() {
     showWhoCertified,
     priceRange[0] > 0 || priceRange[1] < 10000,
     category !== "All",
+    dosageForm !== "All",
+    mfrTier !== "All",
+    selectedPharmacy !== "All",
+    minDiscount !== "0",
+    showRxOnly !== "all",
   ].filter(Boolean).length;
 
   const fetchDrugs = useCallback(async (pageNum: number, append = false) => {
@@ -75,6 +85,13 @@ export default function MedicinesPage() {
     if (query) params.set("q", query);
     if (category !== "All") params.set("category", category);
     if (showGenericOnly) params.set("generic", "true");
+    if (dosageForm !== "All") params.set("dosageForm", dosageForm);
+    if (mfrTier !== "All") params.set("mfrTier", mfrTier);
+    if (selectedPharmacy !== "All") params.set("pharmacy", selectedPharmacy);
+    if (minDiscount !== "0") params.set("minDiscount", minDiscount);
+    if (showRxOnly === "rx") params.set("rx", "true");
+    if (showRxOnly === "otc") params.set("rx", "false");
+    params.set("sortBy", sortBy);
     params.set("page", String(pageNum));
     params.set("limit", "20");
 
@@ -94,7 +111,7 @@ export default function MedicinesPage() {
     }
     if (append) setLoadingMore(false);
     else setLoading(false);
-  }, [query, category, showGenericOnly]);
+  }, [query, category, showGenericOnly, dosageForm, mfrTier, selectedPharmacy, minDiscount, showRxOnly, sortBy]);
 
   // Reset and fetch on filter/search change
   useEffect(() => {
@@ -129,6 +146,23 @@ export default function MedicinesPage() {
     return true;
   });
 
+  // Compute a simple "best value" score for sorting
+  const computeQuickScore = (d: Drug) => {
+    let score = 0;
+    // Price savings (0-40)
+    const discount = d.highestMrp > 0 ? ((d.highestMrp - d.lowestPrice) / d.highestMrp) : 0;
+    score += discount * 40;
+    // Manufacturer quality (0-25)
+    score += (d.manufacturerRef?.overallScore ?? 50) / 4;
+    // Availability across pharmacies (0-15)
+    score += Math.min(d.pharmacyCount, 8) * 1.875;
+    // Generic bonus (0-10)
+    if (d.isGeneric) score += 10;
+    // WHO certified bonus (0-10)
+    if (d.whoCertified) score += 10;
+    return score;
+  };
+
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
       case "price-low": return a.lowestPrice - b.lowestPrice;
@@ -138,6 +172,12 @@ export default function MedicinesPage() {
         const savB = b.highestMrp > 0 ? ((b.highestMrp - b.lowestPrice) / b.highestMrp) : 0;
         return savB - savA;
       }
+      case "discount": {
+        const dA = a.highestMrp > 0 ? ((a.highestMrp - a.lowestPrice) / a.highestMrp) * 100 : 0;
+        const dB = b.highestMrp > 0 ? ((b.highestMrp - b.lowestPrice) / b.highestMrp) * 100 : 0;
+        return dB - dA;
+      }
+      case "best-value": return computeQuickScore(b) - computeQuickScore(a);
       case "sources": return b.pharmacyCount - a.pharmacyCount;
       default: return a.name.localeCompare(b.name);
     }
@@ -149,6 +189,11 @@ export default function MedicinesPage() {
     setShowWhoCertified(false);
     setPriceRange([0, 10000]);
     setCategory("All");
+    setDosageForm("All");
+    setMfrTier("All");
+    setSelectedPharmacy("All");
+    setMinDiscount("0");
+    setShowRxOnly("all");
   };
 
   return (
@@ -192,9 +237,11 @@ export default function MedicinesPage() {
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <span className="text-xs text-gray-400 whitespace-nowrap flex items-center gap-1"><ArrowDownUp size={12} /> Sort:</span>
             {([
-              { key: "price-low", label: "Price: Low to High" },
-              { key: "price-high", label: "Price: High to Low" },
-              { key: "savings", label: "Best Savings" },
+              { key: "best-value", label: "⭐ Best Value" },
+              { key: "price-low", label: "Price: Low → High" },
+              { key: "price-high", label: "Price: High → Low" },
+              { key: "discount", label: "Biggest Discount" },
+              { key: "savings", label: "Max Savings" },
               { key: "sources", label: "Most Sources" },
               { key: "name", label: "A-Z" },
             ] as { key: SortOption; label: string }[]).map((opt) => (
@@ -297,6 +344,90 @@ export default function MedicinesPage() {
             </div>
           </div>
 
+          {/* Dosage Form */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-2 block flex items-center gap-1"><Sparkles size={12} /> Dosage Form</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setDosageForm("All"); setPage(1); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  dosageForm === "All" ? "bg-[var(--color-primary)] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >All</button>
+              {dosageForms.map((d) => (
+                <button key={d} onClick={() => { setDosageForm(d); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    dosageForm === d ? "bg-[var(--color-primary)] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >{d}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Manufacturer Tier */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-2 block flex items-center gap-1"><Building2 size={12} /> Manufacturer Quality</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setMfrTier("All"); setPage(1); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  mfrTier === "All" ? "bg-[var(--color-primary)] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >All Tiers</button>
+              {manufacturerTiers.map((t) => (
+                <button key={t.key} onClick={() => { setMfrTier(t.key); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                    mfrTier === t.key ? "text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                  style={mfrTier === t.key ? { backgroundColor: t.color } : {}}
+                >
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pharmacy Filter */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-2 block flex items-center gap-1"><Store size={12} /> Available On</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setSelectedPharmacy("All"); setPage(1); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  selectedPharmacy === "All" ? "bg-[var(--color-primary)] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >All Pharmacies</button>
+              {pharmacyNames.map((p) => (
+                <button key={p} onClick={() => { setSelectedPharmacy(p); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    selectedPharmacy === p ? "bg-[var(--color-primary)] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >{p}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Min Discount */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-2 block flex items-center gap-1"><Percent size={12} /> Minimum Discount</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setMinDiscount("0"); setPage(1); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  minDiscount === "0" ? "bg-[var(--color-primary)] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >Any</button>
+              {discountRanges.map((d) => (
+                <button key={d.key} onClick={() => { setMinDiscount(d.key); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    minDiscount === d.key ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >{d.label}</button>
+              ))}
+            </div>
+          </div>
+
           {/* Toggle Filters */}
           <div className="flex flex-wrap gap-3">
             <button
@@ -328,6 +459,16 @@ export default function MedicinesPage() {
               <Star size={14} />
               WHO-GMP Certified
               {showWhoCertified && <CheckCircle size={12} />}
+            </button>
+            <button
+              onClick={() => { setShowRxOnly(showRxOnly === "otc" ? "all" : "otc"); setPage(1); }}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                showRxOnly === "otc" ? "bg-purple-50 text-purple-700 border-purple-200" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <Pill size={14} />
+              OTC Only (No Rx)
+              {showRxOnly === "otc" && <CheckCircle size={12} />}
             </button>
           </div>
         </div>
