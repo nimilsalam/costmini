@@ -22,6 +22,16 @@ npm run build        # Production build
 npm run seed         # Seed database with 200+ drugs, 25 procedures, 24 diagnostics
 npx prisma generate  # Regenerate Prisma client
 npx prisma db push   # Push schema to database
+
+# Scraping Engine (local → Vercel Postgres)
+npm run scrape           # Scrape all 203 drugs (PharmEasy real + 7 estimated)
+npm run scrape:test      # Test with first 5 drugs (verbose)
+npm run scrape:dry       # Preview without DB writes
+npm run scrape:category "Pain Relief"  # Scrape specific category
+
+# Drug Discovery (find new drugs from pharmacy searches)
+npx tsx scripts/discover-drugs.ts "metformin"         # Search all pharmacies
+npx tsx scripts/discover-drugs.ts "metformin" --add   # Add found drugs to DB
 ```
 
 ## Environment Variables

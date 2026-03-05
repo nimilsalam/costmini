@@ -10,7 +10,11 @@
     "lint": "eslint",
     "seed": "npx tsx prisma/seed.ts",
     "db:push": "prisma db push",
-    "db:seed": "prisma db push && npx tsx prisma/seed.ts"
+    "db:seed": "prisma db push && npx tsx prisma/seed.ts",
+    "scrape": "npx tsx scripts/scrape-and-sync.ts",
+    "scrape:dry": "npx tsx scripts/scrape-and-sync.ts --dry-run --verbose",
+    "scrape:test": "npx tsx scripts/scrape-and-sync.ts --limit 5 --verbose",
+    "scrape:category": "npx tsx scripts/scrape-and-sync.ts --category"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
