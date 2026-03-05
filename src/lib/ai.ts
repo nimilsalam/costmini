@@ -21,7 +21,12 @@ async function buildMedicineContext(query: string): Promise<string> {
           { category: { contains: q } },
         ],
       },
-      include: { prices: true },
+      include: {
+        prices: true,
+        manufacturerRef: {
+          select: { name: true, overallScore: true, tier: true, usFdaApproved: true, whoPrequalified: true },
+        },
+      },
       take: 8,
     }),
     prisma.procedure.findMany({
@@ -56,7 +61,11 @@ async function buildMedicineContext(query: string): Promise<string> {
         ? Math.min(...drug.prices.map((p: { sellingPrice: number }) => p.sellingPrice))
         : 0;
       const generic = drug.isGeneric ? "GENERIC" : "BRANDED";
-      context += `- **${drug.name}** (${generic}): ${drug.composition}, by ${drug.manufacturer}. `;
+      const mfr = (drug as { manufacturerRef?: { name: string; overallScore: number; tier: string; usFdaApproved: boolean; whoPrequalified: boolean } | null }).manufacturerRef;
+      const mfrInfo = mfr
+        ? ` [${mfr.tier.toUpperCase()} manufacturer, Score: ${Math.round(mfr.overallScore)}/100${mfr.usFdaApproved ? ", FDA-approved" : ""}${mfr.whoPrequalified ? ", WHO-prequalified" : ""}]`
+        : "";
+      context += `- **${drug.name}** (${generic}): ${drug.composition}, by ${drug.manufacturer}${mfrInfo}. `;
       context += `Cheapest: ${formatPrice(cheapest)}. Pack: ${drug.packSize}. `;
       context += `Uses: ${drug.uses || "N/A"}. Side effects: ${drug.sideEffects || "N/A"}\n`;
 
@@ -119,6 +128,8 @@ Rules:
 - Always cite specific prices from the data when available
 - Compare branded vs generic prices and highlight savings
 - Recommend the cheapest quality option (WHO-certified or NABL/NABH accredited)
+- When manufacturer quality data is available, mention the manufacturer's CostMini tier (Premium, Trusted, Standard) and score
+- Prefer recommending drugs from Premium or Trusted manufacturers when price difference is small
 - For medicines: mention Jan Aushadhi stores as cheapest option
 - For surgeries: mention government hospital options alongside private
 - Include a brief medical disclaimer when discussing medicines

@@ -3,7 +3,35 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
+}
+
+// ─── MANUFACTURERS ──────────────────────────────────────────
+
+model Manufacturer {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  slug             String   @unique
+  headquarters     String?
+  foundedYear      Int?
+  marketCapBillion Float?            // USD billions (public data)
+  globalRank       Int?              // Revenue rank among Indian pharma
+  usFdaApproved    Boolean  @default(false)
+  whoPrequalified  Boolean  @default(false)
+  eugmpCompliant   Boolean  @default(false)
+  qualityScore     Float    @default(50)  // 0-100
+  reliabilityScore Float    @default(50)  // 0-100
+  overallScore     Float    @default(50)  // 0-100 weighted composite
+  tier             String   @default("standard") // premium/trusted/standard/budget/government
+  description      String?
+  websiteUrl       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  drugs Drug[]
+
+  @@index([overallScore])
+  @@index([tier])
 }
 
 // ─── MEDICINES ───────────────────────────────────────────────
@@ -15,6 +43,8 @@ model Drug {
   genericName     String
   brandName       String?
   manufacturer    String
+  manufacturerId  String?
+  manufacturerRef Manufacturer? @relation(fields: [manufacturerId], references: [id])
   composition     String   // e.g. "Paracetamol 500mg"
   category        String   // e.g. "Pain Relief", "Antibiotics"
   dosageForm      String   // e.g. "Tablet", "Syrup", "Injection"
@@ -29,15 +59,17 @@ model Drug {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  prices       DrugPrice[]
-  alternatives DrugAlternative[] @relation("OriginalDrug")
+  prices        DrugPrice[]
+  priceHistory  PriceHistory[]
+  alternatives  DrugAlternative[] @relation("OriginalDrug")
   alternativeOf DrugAlternative[] @relation("AlternativeDrug")
-  scanResults  ScanResult[]
+  scanResults   ScanResult[]
 
   @@index([genericName])
   @@index([name])
   @@index([category])
   @@index([slug])
+  @@index([manufacturerId])
 }
 
 model DrugPrice {
@@ -143,6 +175,21 @@ model DiagnosticPrice {
 
   @@index([diagnosticId])
   @@index([city])
+}
+
+// ─── PRICE HISTORY ─────────────────────────────────────────
+
+model PriceHistory {
+  id           String   @id @default(cuid())
+  drugId       String
+  drug         Drug     @relation(fields: [drugId], references: [id])
+  source       String
+  sellingPrice Float
+  mrp          Float
+  recordedAt   DateTime @default(now())
+
+  @@index([drugId, source])
+  @@index([recordedAt])
 }
 
 // ─── SYNC TRACKING ──────────────────────────────────────────

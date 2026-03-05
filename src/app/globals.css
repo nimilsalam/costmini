@@ -44,6 +44,15 @@ body {
   animation: scan-line 2s ease-in-out infinite;
 }
 
+/* Fade-in animation for streaming price rows */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
 /* Pulse glow for CTA */
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.4); }

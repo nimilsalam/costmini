@@ -4,14 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "seed": "npx tsx prisma/seed.ts"
+    "seed": "npx tsx prisma/seed.ts",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db push && npx tsx prisma/seed.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
     "@prisma/adapter-better-sqlite3": "^7.4.2",
+    "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "better-sqlite3": "^12.6.2",
     "cheerio": "^1.2.0",
@@ -21,6 +25,7 @@
     "lucide-react": "^0.576.0",
     "next": "16.1.6",
     "next-pwa": "^5.6.0",
+    "pg": "^8.20.0",
     "prisma": "^7.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",

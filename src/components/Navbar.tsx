@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, X, Scan, Pill, Stethoscope, TestTube, Search, Sparkles } from "lucide-react";
+import { Menu, X, Scan, Pill, Stethoscope, TestTube, Search, Sparkles, Store, Building2 } from "lucide-react";
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
 
   const links = [
     { href: "/medicines", label: "Medicines", icon: Pill },
+    { href: "/pharmacies", label: "Pharmacies", icon: Store },
+    { href: "/manufacturers", label: "Brands", icon: Building2 },
     { href: "/procedures", label: "Surgeries", icon: Stethoscope },
     { href: "/diagnostics", label: "Lab Tests", icon: TestTube },
-    { href: "/scan", label: "Scan Prescription", icon: Scan },
+    { href: "/scan", label: "Scan Rx", icon: Scan },
   ];
 
   return (

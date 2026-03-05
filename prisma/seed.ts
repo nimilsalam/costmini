@@ -1,16 +1,31 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { PrismaClient } = require("@prisma/client");
-const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 const path = require("path");
 const {
   sampleDrugs,
   sampleProcedures,
   sampleDiagnostics,
 } = require("../src/lib/sample-data");
+const { manufacturerSeedData } = require("../src/lib/manufacturer-data");
+const { computeManufacturerScores } = require("../src/lib/manufacturer-scoring");
 
-const dbPath = path.join(__dirname, "..", "dev.db");
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
-const prisma = new PrismaClient({ adapter });
+// Support both SQLite (local dev) and PostgreSQL (production)
+const url = process.env.DATABASE_URL || "";
+let prisma: InstanceType<typeof PrismaClient>;
+
+if (url.startsWith("file:") || url.endsWith(".db")) {
+  const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
+  const dbFile = url.startsWith("file:") ? url.replace("file:", "").replace("./", "") : url;
+  const dbPath = path.isAbsolute(dbFile) ? dbFile : path.join(process.cwd(), dbFile);
+  const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
+  prisma = new PrismaClient({ adapter });
+} else if (url.startsWith("postgres")) {
+  const { PrismaPg } = require("@prisma/adapter-pg");
+  const adapter = new PrismaPg({ connectionString: url });
+  prisma = new PrismaClient({ adapter });
+} else {
+  prisma = new PrismaClient();
+}
 
 async function main() {
   console.log("Seeding database...");
@@ -20,12 +35,57 @@ async function main() {
   await prisma.scanResult.deleteMany();
   await prisma.prescriptionScan.deleteMany();
   await prisma.drugAlternative.deleteMany();
+  await prisma.priceHistory.deleteMany();
   await prisma.drugPrice.deleteMany();
   await prisma.drug.deleteMany();
+  await prisma.manufacturer.deleteMany();
   await prisma.procedurePrice.deleteMany();
   await prisma.procedure.deleteMany();
   await prisma.diagnosticPrice.deleteMany();
   await prisma.diagnostic.deleteMany();
+
+  // Seed manufacturers
+  const mfrIds: Record<string, string> = {};
+  const mfrAliasMap: { id: string; aliases: string[] }[] = [];
+  for (const mfr of manufacturerSeedData) {
+    const scores = computeManufacturerScores(mfr);
+    const created = await prisma.manufacturer.create({
+      data: {
+        name: mfr.name,
+        slug: mfr.slug,
+        headquarters: mfr.headquarters || null,
+        foundedYear: mfr.foundedYear || null,
+        marketCapBillion: mfr.marketCapBillion || null,
+        globalRank: mfr.globalRank || null,
+        usFdaApproved: mfr.usFdaApproved,
+        whoPrequalified: mfr.whoPrequalified,
+        eugmpCompliant: mfr.eugmpCompliant,
+        qualityScore: scores.qualityScore,
+        reliabilityScore: scores.reliabilityScore,
+        overallScore: scores.overallScore,
+        tier: scores.tier,
+        description: mfr.description || null,
+        websiteUrl: mfr.websiteUrl || null,
+      },
+    });
+    mfrIds[mfr.name] = created.id;
+    mfrAliasMap.push({ id: created.id, aliases: mfr.aliases });
+  }
+  console.log(`  - ${manufacturerSeedData.length} manufacturers with scores`);
+
+  // Helper: fuzzy-match drug manufacturer string to Manufacturer ID
+  function findManufacturerId(drugMfr: string): string | null {
+    const normalized = drugMfr.toLowerCase().replace(/[^a-z0-9]/g, "");
+    for (const entry of mfrAliasMap) {
+      for (const alias of entry.aliases) {
+        const normAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (normalized.includes(normAlias) || normAlias.includes(normalized)) {
+          return entry.id;
+        }
+      }
+    }
+    return null;
+  }
 
   // Helper to generate slug from name
   function toSlug(name: string): string {
@@ -50,8 +110,11 @@ async function main() {
 
   // Seed drugs
   const drugIds: Record<string, string> = {};
+  let linkedCount = 0;
   for (const d of sampleDrugs) {
     const slug = uniqueSlug(d.name, d.slug);
+    const mfrId = findManufacturerId(d.manufacturer);
+    if (mfrId) linkedCount++;
     const drug = await prisma.drug.create({
       data: {
         name: d.name,
@@ -59,6 +122,7 @@ async function main() {
         genericName: d.genericName,
         brandName: d.brandName,
         manufacturer: d.manufacturer,
+        manufacturerId: mfrId,
         composition: d.composition,
         category: d.category,
         dosageForm: d.dosageForm,
@@ -175,7 +239,7 @@ async function main() {
   }
 
   console.log("Seeded:");
-  console.log(`  - ${sampleDrugs.length} drugs with prices`);
+  console.log(`  - ${sampleDrugs.length} drugs with prices (${linkedCount} linked to manufacturers)`);
   console.log(`  - ${sampleProcedures.length} procedures with hospital prices`);
   console.log(`  - ${sampleDiagnostics.length} diagnostics with lab prices`);
   console.log("Done!");

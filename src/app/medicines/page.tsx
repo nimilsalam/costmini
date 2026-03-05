@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Search, Pill, ArrowDownUp, Shield, Share2, Loader2, SlidersHorizontal, CheckCircle, X, Star } from "lucide-react";
 import { drugCategories } from "@/lib/constants";
 import { formatPrice, calcSavings, whatsappShareUrl } from "@/lib/utils";
+import SearchAutocomplete from "@/components/SearchAutocomplete";
 
 interface DrugPrice {
   source: string;
@@ -30,6 +31,13 @@ interface Drug {
   lowestPrice: number;
   highestMrp: number;
   pharmacyCount: number;
+  manufacturerRef?: {
+    id: string;
+    name: string;
+    slug: string;
+    overallScore: number;
+    tier: string;
+  } | null;
 }
 
 type SortOption = "name" | "price-low" | "price-high" | "savings" | "sources";
@@ -47,6 +55,9 @@ export default function MedicinesPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const activeFilterCount = [
     showGenericOnly,
@@ -56,30 +67,59 @@ export default function MedicinesPage() {
     category !== "All",
   ].filter(Boolean).length;
 
-  const fetchDrugs = useCallback(async () => {
-    setLoading(true);
+  const fetchDrugs = useCallback(async (pageNum: number, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+
     const params = new URLSearchParams();
     if (query) params.set("q", query);
     if (category !== "All") params.set("category", category);
     if (showGenericOnly) params.set("generic", "true");
-    params.set("page", String(page));
-    params.set("limit", "50");
+    params.set("page", String(pageNum));
+    params.set("limit", "20");
 
     try {
       const res = await fetch(`/api/drugs/search?${params}`);
       const data = await res.json();
-      setDrugs(data.results || []);
+      const results = data.results || [];
+      if (append) {
+        setDrugs((prev) => [...prev, ...results]);
+      } else {
+        setDrugs(results);
+      }
       setTotal(data.count || 0);
+      setHasMore(results.length >= 20);
     } catch {
-      setDrugs([]);
+      if (!append) setDrugs([]);
     }
-    setLoading(false);
-  }, [query, category, showGenericOnly, page]);
+    if (append) setLoadingMore(false);
+    else setLoading(false);
+  }, [query, category, showGenericOnly]);
 
+  // Reset and fetch on filter/search change
   useEffect(() => {
-    const timeout = setTimeout(fetchDrugs, 300);
+    setPage(1);
+    setHasMore(true);
+    const timeout = setTimeout(() => fetchDrugs(1, false), 300);
     return () => clearTimeout(timeout);
   }, [fetchDrugs]);
+
+  // Infinite scroll with IntersectionObserver
+  useEffect(() => {
+    if (!loadMoreRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+          const nextPage = page + 1;
+          setPage(nextPage);
+          fetchDrugs(nextPage, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, page, fetchDrugs]);
 
   // Client-side filtering & sorting (Agoda-style)
   const filtered = drugs.filter((d) => {
@@ -124,6 +164,11 @@ export default function MedicinesPage() {
         </p>
       </div>
 
+      {/* Quick Navigate */}
+      <div className="mb-4">
+        <SearchAutocomplete placeholder="Quick find: type medicine name to jump directly..." />
+      </div>
+
       {/* Search */}
       <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
         <div className="relative">
@@ -133,7 +178,7 @@ export default function MedicinesPage() {
           />
           <input
             type="text"
-            placeholder="Search medicines by name, generic name, or composition..."
+            placeholder="Filter results by name, generic name, or composition..."
             value={query}
             onChange={(e) => { setQuery(e.target.value); setPage(1); }}
             className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] outline-none text-sm"
@@ -342,8 +387,27 @@ export default function MedicinesPage() {
                     )}
                   </div>
                   <p className="text-sm text-gray-500 mb-1">
-                    {drug.composition} &middot; {drug.manufacturer} &middot;{" "}
-                    {drug.packSize}
+                    {drug.composition} &middot;{" "}
+                    <span className="inline-flex items-center gap-1">
+                      {drug.manufacturerRef && (
+                        <span
+                          className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor:
+                              drug.manufacturerRef.tier === "premium"
+                                ? "#D97706"
+                                : drug.manufacturerRef.tier === "trusted"
+                                  ? "#2563EB"
+                                  : drug.manufacturerRef.tier === "government"
+                                    ? "#059669"
+                                    : "#6B7280",
+                          }}
+                          title={`${drug.manufacturerRef.tier.charAt(0).toUpperCase() + drug.manufacturerRef.tier.slice(1)} Manufacturer (Score: ${Math.round(drug.manufacturerRef.overallScore)})`}
+                        />
+                      )}
+                      {drug.manufacturer}
+                    </span>{" "}
+                    &middot; {drug.packSize}
                   </p>
                   <p className="text-xs text-gray-400">
                     {drug.category} &middot; {drug.dosageForm}
@@ -395,27 +459,21 @@ export default function MedicinesPage() {
         })}
       </div>
 
-      {/* Pagination */}
-      {total > 50 && (
-        <div className="flex justify-center gap-2 mt-8">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 rounded-lg border border-gray-200 text-sm disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="px-4 py-2 text-sm text-gray-500">
-            Page {page} of {Math.ceil(total / 50)}
-          </span>
-          <button
-            onClick={() => setPage((p) => p + 1)}
-            disabled={page >= Math.ceil(total / 50)}
-            className="px-4 py-2 rounded-lg border border-gray-200 text-sm disabled:opacity-50"
-          >
-            Next
-          </button>
+      {/* Infinite scroll trigger */}
+      {hasMore && !loading && (
+        <div ref={loadMoreRef} className="flex justify-center py-8">
+          {loadingMore && (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 size={16} className="animate-spin" />
+              Loading more medicines...
+            </div>
+          )}
         </div>
+      )}
+      {!hasMore && drugs.length > 0 && (
+        <p className="text-center text-sm text-gray-400 py-6">
+          Showing all {total} medicines
+        </p>
       )}
 
       {!loading && sorted.length === 0 && (

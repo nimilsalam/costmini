@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { Pill, Stethoscope, TestTube, Scan, TrendingDown, Shield, Share2, Sparkles, Search } from "lucide-react";
+import { Pill, Stethoscope, TestTube, Scan, TrendingDown, Shield, Share2, Sparkles, Search, Building2, Award, BarChart3 } from "lucide-react";
+import { prisma } from "@/lib/db";
+import SearchAutocomplete from "@/components/SearchAutocomplete";
+
+export const dynamic = "force-dynamic";
 
 const categories = [
   {
@@ -32,12 +36,36 @@ const categories = [
   },
 ];
 
-const stats = [
-  { value: "80%", label: "Average Savings" },
-  { value: "50K+", label: "Medicines Listed" },
-  { value: "500+", label: "Hospitals Compared" },
-  { value: "10L+", label: "Indians Helped" },
-];
+async function getStats() {
+  try {
+    const [drugCount, pharmacyCount, procedureCount, mfrCount, lastSync] = await Promise.all([
+      prisma.drug.count(),
+      prisma.drugPrice.groupBy({ by: ["source"] }).then((r: { source: string }[]) => r.length),
+      prisma.procedure.count(),
+      prisma.manufacturer.count(),
+      prisma.syncLog.findFirst({ orderBy: { startedAt: "desc" }, select: { startedAt: true } }),
+    ]);
+    return {
+      stats: [
+        { value: "80%", label: "Average Savings" },
+        { value: drugCount.toLocaleString(), label: "Medicines Listed" },
+        { value: pharmacyCount.toLocaleString(), label: "Pharmacies Compared" },
+        { value: `${mfrCount}+`, label: "Rated Manufacturers" },
+      ],
+      lastSync: lastSync?.startedAt ?? null,
+    };
+  } catch {
+    return {
+      stats: [
+        { value: "80%", label: "Average Savings" },
+        { value: "200+", label: "Medicines Listed" },
+        { value: "8", label: "Pharmacies Compared" },
+        { value: "30+", label: "Rated Manufacturers" },
+      ],
+      lastSync: null,
+    };
+  }
+}
 
 const howItWorks = [
   {
@@ -66,7 +94,9 @@ const howItWorks = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const { stats } = await getStats();
+
   return (
     <>
       {/* Hero Section */}
@@ -91,17 +121,12 @@ export default function Home() {
               up to 80%.
             </p>
 
-            {/* AI Search Bar */}
-            <div className="mb-6">
-              <Link
-                href="/search"
-                className="flex items-center gap-3 w-full max-w-xl px-5 py-4 rounded-2xl bg-white/10 border border-white/20 hover:bg-white/15 transition-all group"
-              >
-                <Sparkles size={20} className="text-teal-200 group-hover:text-white transition-colors" />
-                <span className="text-teal-200 group-hover:text-white transition-colors">
-                  Ask about medicines, surgery costs, lab tests...
-                </span>
-              </Link>
+            {/* Real Search Bar */}
+            <div className="mb-6 max-w-xl">
+              <SearchAutocomplete
+                placeholder="Search medicines, generics, compositions..."
+                size="large"
+              />
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4">
@@ -128,7 +153,7 @@ export default function Home() {
       <section className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-            {stats.map((s) => (
+            {stats.map((s: { value: string; label: string }) => (
               <div key={s.label}>
                 <div className="text-3xl sm:text-4xl font-bold text-[var(--color-primary)]">
                   {s.value}
@@ -268,6 +293,66 @@ export default function Home() {
                 </p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CostMini Score Section */}
+      <section className="bg-white py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-100 text-green-700 text-sm font-medium mb-4">
+              <Award size={14} />
+              New: CostMini Score
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3">
+              We Rate Every Medicine For You
+            </h2>
+            <p className="text-gray-500 text-lg max-w-2xl mx-auto">
+              Not just the cheapest — the <strong>best value</strong>. Our algorithm
+              considers price, manufacturer quality, and availability.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            <div className="text-center p-6 rounded-2xl bg-green-50 border border-green-100">
+              <div className="w-14 h-14 rounded-xl bg-green-500 text-white flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-lg">
+                ₹
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">Best Price</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                We compare prices across 8 pharmacies and score based on where each
+                option falls in the price range.
+              </p>
+            </div>
+            <div className="text-center p-6 rounded-2xl bg-blue-50 border border-blue-100">
+              <div className="w-14 h-14 rounded-xl bg-blue-500 text-white flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <Building2 size={24} />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">Trusted Manufacturer</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                We rate 30+ manufacturers on FDA approval, WHO prequalification, and
+                market presence.
+              </p>
+            </div>
+            <div className="text-center p-6 rounded-2xl bg-amber-50 border border-amber-100">
+              <div className="w-14 h-14 rounded-xl bg-amber-500 text-white flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <BarChart3 size={24} />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">In Stock &amp; Fresh</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                We check availability and data freshness — so the price you see is
+                the price you get.
+              </p>
+            </div>
+          </div>
+          <div className="text-center mt-8">
+            <Link
+              href="/manufacturers"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-[var(--color-primary)] border border-[var(--color-primary)] hover:bg-teal-50 transition-colors"
+            >
+              <Shield size={16} />
+              View Manufacturer Ratings
+            </Link>
           </div>
         </div>
       </section>

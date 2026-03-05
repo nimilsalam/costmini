@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { cache, TTL } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -8,6 +9,18 @@ export async function GET(req: NextRequest) {
   const generic = searchParams.get("generic");
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "50");
+
+  // Check cache first
+  const cacheKey = `search:${q}:${category}:${generic}:${page}:${limit}`;
+  const cached = cache.get<{ results: unknown[]; count: number; page: number; limit: number }>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
+        "X-Cache": "HIT",
+      },
+    });
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {};
@@ -31,7 +44,18 @@ export async function GET(req: NextRequest) {
   const [drugs, total] = await Promise.all([
     prisma.drug.findMany({
       where,
-      include: { prices: { orderBy: { sellingPrice: "asc" } } },
+      include: {
+        prices: { orderBy: { sellingPrice: "asc" } },
+        manufacturerRef: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            overallScore: true,
+            tier: true,
+          },
+        },
+      },
       skip: (page - 1) * limit,
       take: limit,
       orderBy: { name: "asc" },
@@ -46,5 +70,13 @@ export async function GET(req: NextRequest) {
     pharmacyCount: d.prices.length,
   }));
 
-  return NextResponse.json({ results, count: total, page, limit });
+  const body = { results, count: total, page, limit };
+  cache.set(cacheKey, body, TTL.SEARCH_RESULTS);
+
+  return NextResponse.json(body, {
+    headers: {
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
+      "X-Cache": "MISS",
+    },
+  });
 }
