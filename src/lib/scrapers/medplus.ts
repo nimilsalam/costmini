@@ -4,10 +4,11 @@ import { DrugScraper, ScrapedDrug, ScraperResult } from "./base";
 /**
  * Scraper for MedPlus Mart (medplusmart.com)
  *
- * Strategy: Uses MedPlus' search API endpoint which returns JSON.
- * Falls back to HTML scraping of the search results page.
+ * Strategy: MedPlus is a custom SPA. The search API requires full session
+ * cookies from the SPA bootstrap. Product pages have JSON-LD data for SSR/SEO.
  *
- * Note: In production, respect rate limits and robots.txt.
+ * Token API: POST /mart-common-api/generateToken (returns tokenId)
+ * Product pages: /product/{NAME}/{SKU} with JSON-LD Product + Drug schemas
  */
 export class MedPlusScraper extends DrugScraper {
   source = "MedPlus";
@@ -15,25 +16,7 @@ export class MedPlusScraper extends DrugScraper {
 
   async searchDrugs(query: string): Promise<ScraperResult> {
     try {
-      // Try MedPlus search API first
-      const apiUrl = `${this.baseUrl}/api/search?q=${encodeURIComponent(query)}`;
-
-      const res = await fetch(apiUrl, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Accept: "application/json",
-          "Accept-Language": "en-IN,en;q=0.9",
-        },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        return this.parseApiResponse(data);
-      }
-
-      // Fallback: HTML scraping
-      return this.scrapeSearchPage(query);
+      return await this.scrapeSearchPage(query);
     } catch (error) {
       return {
         source: this.source,
@@ -44,110 +27,65 @@ export class MedPlusScraper extends DrugScraper {
     }
   }
 
-  private parseApiResponse(data: Record<string, unknown>): ScraperResult {
-    const drugs: ScrapedDrug[] = [];
-
-    const products =
-      (data.data as Record<string, unknown>)?.products as Array<
-        Record<string, unknown>
-      > ||
-      (data.products as Array<Record<string, unknown>>) ||
-      (data.results as Array<Record<string, unknown>>) ||
-      [];
-
-    for (const item of products) {
-      try {
-        drugs.push({
-          name: (item.name as string) || (item.productName as string) || "",
-          genericName:
-            (item.genericName as string) ||
-            (item.saltName as string) ||
-            "",
-          manufacturer:
-            (item.manufacturerName as string) ||
-            (item.manufacturer as string) ||
-            (item.brand as string) ||
-            "",
-          composition:
-            (item.composition as string) ||
-            (item.saltName as string) ||
-            "",
-          packSize: (item.packSize as string) || (item.unitOfMeasure as string) || "",
-          mrp: (item.mrp as number) || (item.price as number) || 0,
-          sellingPrice:
-            (item.sellingPrice as number) ||
-            (item.salePrice as number) ||
-            (item.offeredPrice as number) ||
-            (item.mrp as number) ||
-            0,
-          inStock: (item.isInStock as boolean) !== false,
-          sourceUrl: item.slug
-            ? `${this.baseUrl}/product/${item.slug}`
-            : (item.url as string) || "",
-          imageUrl: (item.imageUrl as string) || (item.image as string) || undefined,
-          prescriptionRequired:
-            (item.isPrescriptionRequired as boolean) ||
-            (item.rxRequired as boolean) ||
-            false,
-        });
-      } catch {
-        continue;
-      }
-    }
-
-    return { source: this.source, drugs, scrapedAt: new Date() };
-  }
-
   private async scrapeSearchPage(query: string): Promise<ScraperResult> {
-    const url = `${this.baseUrl}/search-medicines?q=${encodeURIComponent(query)}`;
+    // MedPlus search is a client-side SPA that doesn't render product data server-side
+    // Instead, try fetching the search page and look for any server-rendered data
+    const url = `${this.baseUrl}/searchProduct.mart?searchKey=${encodeURIComponent(query)}`;
     const html = await this.fetchPage(url);
     const $ = cheerio.load(html);
     const drugs: ScrapedDrug[] = [];
 
-    $("[class*='ProductCard'], [class*='product-card'], [class*='product-item']").each(
-      (_, el) => {
-        try {
-          const $el = $(el);
-          const name = $el
-            .find("[class*='productName'], [class*='product-title'], h2, h3")
-            .first()
-            .text()
-            .trim();
-          const priceText = $el
-            .find("[class*='sellingPrice'], [class*='sale-price'], [class*='our-price']")
-            .first()
-            .text();
-          const mrpText = $el
-            .find("[class*='striked'], [class*='actual-price'], [class*='mrp']")
-            .first()
-            .text();
-          const manufacturer = $el
-            .find("[class*='manufacturer'], [class*='brand']")
-            .text()
-            .trim();
-          const link = $el.find("a").attr("href") || "";
-
-          if (name && priceText) {
-            drugs.push({
-              name,
-              genericName: "",
-              manufacturer,
-              composition: "",
-              packSize: "",
-              mrp: this.parsePrice(mrpText) || this.parsePrice(priceText),
-              sellingPrice: this.parsePrice(priceText),
-              inStock: true,
-              sourceUrl: link.startsWith("http")
-                ? link
-                : `${this.baseUrl}${link}`,
-              prescriptionRequired: false,
-            });
-          }
-        } catch {
-          // skip malformed entries
+    // Method 1: Check for JSON-LD embedded data
+    $('script[type="application/ld+json"]').each((_, script) => {
+      try {
+        const ld = JSON.parse($(script).html() || "{}");
+        if (ld["@type"] === "Product" || ld["@type"] === "Drug") {
+          drugs.push({
+            name: ld.name || "",
+            genericName: ld.activeIngredient || "",
+            manufacturer: ld.manufacturer?.name || ld.brand || "",
+            composition: ld.activeIngredient || "",
+            packSize: ld.dosageForm || "",
+            mrp: ld.offers?.price || 0,
+            sellingPrice: ld.offers?.price || 0,
+            inStock: ld.offers?.availability?.includes("InStock") || true,
+            sourceUrl: url,
+            imageUrl: ld.image || undefined,
+            prescriptionRequired: ld.prescriptionStatus === "PrescriptionOnly",
+          });
         }
-      }
-    );
+      } catch { /* skip */ }
+    });
+
+    // Method 2: Check for embedded window data
+    if (drugs.length === 0) {
+      $("script").each((_, script) => {
+        const content = $(script).html() || "";
+        if (content.includes("searchProducts") || content.includes("productList")) {
+          try {
+            const match = content.match(/(?:searchProducts|productList)\s*[:=]\s*(\[[\s\S]*?\])/);
+            if (match) {
+              const products = JSON.parse(match[1]);
+              for (const item of products) {
+                drugs.push({
+                  name: item.productName || item.name || "",
+                  genericName: item.genericName || item.molecule || "",
+                  manufacturer: item.manufacturer || item.brand || "",
+                  composition: item.molecule || item.composition || "",
+                  packSize: item.packSize || "",
+                  mrp: item.mrp || item.price || 0,
+                  sellingPrice: item.offeredPrice || item.sellingPrice || item.mrp || 0,
+                  inStock: item.isInStock !== false,
+                  sourceUrl: item.url || `${this.baseUrl}/product/${item.slug || ""}`,
+                  imageUrl: item.imageUrl || undefined,
+                  prescriptionRequired: item.isPrescription || false,
+                });
+              }
+            }
+          } catch { /* skip */ }
+        }
+      });
+    }
 
     return { source: this.source, drugs, scrapedAt: new Date() };
   }
@@ -157,34 +95,38 @@ export class MedPlusScraper extends DrugScraper {
       const html = await this.fetchPage(url);
       const $ = cheerio.load(html);
 
-      const name = $("h1").first().text().trim();
-      const manufacturer = $(
-        "[class*='manufacturer'], [class*='brand-name'], [class*='mfr-name']"
-      )
-        .text()
-        .trim();
-      const composition = $(
-        "[class*='composition'], [class*='salt-info'], [class*='generic-name']"
-      )
-        .first()
-        .text()
-        .trim();
-      const priceText = $(
-        "[class*='sellingPrice'], [class*='sale-price'], [class*='our-price']"
-      )
-        .first()
-        .text();
-      const mrpText = $(
-        "[class*='striked-price'], [class*='actual-price'], [class*='mrp']"
-      )
-        .first()
-        .text();
-      const packSize = $("[class*='pack-size'], [class*='quantity'], [class*='unit']")
-        .text()
-        .trim();
-      const rxRequired =
-        $("[class*='prescription'], [class*='rx-required']").length > 0;
+      let name = "";
+      let manufacturer = "";
+      let composition = "";
+      let mrp = 0;
+      let sellingPrice = 0;
+      let imageUrl: string | undefined;
+      let prescriptionRequired = false;
+      let packSize = "";
 
+      // Extract from JSON-LD (reliable for MedPlus product pages)
+      $('script[type="application/ld+json"]').each((_, script) => {
+        try {
+          const ld = JSON.parse($(script).html() || "{}");
+          if (ld["@type"] === "Product") {
+            name = ld.name || name;
+            manufacturer = ld.brand || manufacturer;
+            mrp = ld.offers?.price || mrp;
+            sellingPrice = ld.offers?.price || sellingPrice;
+            imageUrl = ld.image || imageUrl;
+          }
+          if (ld["@type"] === "Drug") {
+            composition = ld.activeIngredient || composition;
+            packSize = ld.dosageForm || packSize;
+            prescriptionRequired = ld.prescriptionStatus === "PrescriptionOnly";
+            manufacturer = ld.manufacturer?.name || manufacturer;
+          }
+        } catch { /* skip */ }
+      });
+
+      if (!name) {
+        name = $("h1").first().text().trim();
+      }
       if (!name) return null;
 
       return {
@@ -193,11 +135,12 @@ export class MedPlusScraper extends DrugScraper {
         manufacturer,
         composition,
         packSize,
-        mrp: this.parsePrice(mrpText) || this.parsePrice(priceText),
-        sellingPrice: this.parsePrice(priceText),
+        mrp,
+        sellingPrice: sellingPrice || mrp,
         inStock: true,
         sourceUrl: url,
-        prescriptionRequired: rxRequired,
+        imageUrl,
+        prescriptionRequired,
       };
     } catch {
       return null;

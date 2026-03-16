@@ -1,25 +1,22 @@
 "use client";
 
-import { MessageCircle } from "lucide-react";
+import { Share2 } from "lucide-react";
 
 export function WhatsAppFloat() {
   const message = encodeURIComponent(
-    "Hi! I want to find cheaper medicine alternatives on CostMini."
+    "Check out CostMini — compare medicine prices across 8 pharmacies and save up to 80% with generics! costmini.in"
   );
-  const whatsappUrl = `https://wa.me/?text=${message}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${message}`;
 
   return (
     <a
       href={whatsappUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-full bg-green-500 text-white shadow-lg hover:bg-green-600 hover:shadow-xl transition-all group"
       aria-label="Share on WhatsApp"
+      className="fixed bottom-6 right-6 z-40 w-10 h-10 rounded-full bg-foreground/80 hover:bg-foreground text-background flex items-center justify-center transition-colors shadow-sm"
     >
-      <MessageCircle size={22} className="fill-white" />
-      <span className="hidden sm:inline text-sm font-semibold">
-        Share & Save
-      </span>
+      <Share2 size={16} />
     </a>
   );
 }

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
 }
 
 // ─── MANUFACTURERS ──────────────────────────────────────────
@@ -34,6 +34,29 @@ model Manufacturer {
   @@index([tier])
 }
 
+// ─── COMPOSITION GROUPS (for cross-pharmacy matching) ───────
+
+model CompositionGroup {
+  id              String   @id @default(cuid())
+  compositionKey  String   @unique  // Normalized key: "paracetamol-650mg::tablet"
+  displayName     String             // "Paracetamol 650MG Tablet"
+  primarySalt     String             // Main molecule: "paracetamol"
+  strength        String             // "650mg"
+  dosageForm      String             // "tablet"
+  category        String   @default("Others")
+  drugCount       Int      @default(0)
+  lowestPrice     Float?
+  highestPrice    Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  drugs Drug[]
+
+  @@index([primarySalt])
+  @@index([category])
+  @@index([drugCount])
+}
+
 // ─── MEDICINES ───────────────────────────────────────────────
 
 model Drug {
@@ -45,6 +68,8 @@ model Drug {
   manufacturer    String
   manufacturerId  String?
   manufacturerRef Manufacturer? @relation(fields: [manufacturerId], references: [id])
+  compositionGroupId String?
+  compositionGroup   CompositionGroup? @relation(fields: [compositionGroupId], references: [id])
   composition     String   // e.g. "Paracetamol 500mg"
   category        String   // e.g. "Pain Relief", "Antibiotics"
   dosageForm      String   // e.g. "Tablet", "Syrup", "Injection"
@@ -69,6 +94,7 @@ model Drug {
   @@index([category])
   @@index([slug])
   @@index([manufacturerId])
+  @@index([compositionGroupId])
 }
 
 model DrugPrice {

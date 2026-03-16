@@ -2,9 +2,14 @@ import Groq from "groq-sdk";
 import { prisma } from "./db";
 import { formatPrice, calcSavings } from "./utils";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY || "",
-});
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+  if (!_groq) {
+    if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY not configured");
+    _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+  return _groq;
+}
 
 // ─── Medicine Knowledge Base (Prisma-backed) ─────────────────
 
@@ -158,7 +163,7 @@ export async function streamMedicineSearch(query: string) {
 
   messages.push({ role: "user", content: query });
 
-  const stream = await groq.chat.completions.create({
+  const stream = await getGroq().chat.completions.create({
     model: "llama-3.3-70b-versatile",
     messages,
     stream: true,
@@ -174,7 +179,7 @@ export async function analyzePrescriptionImage(
   imageBase64: string,
   mimeType: string
 ): Promise<string> {
-  const response = await groq.chat.completions.create({
+  const response = await getGroq().chat.completions.create({
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
     messages: [
       {
@@ -217,4 +222,4 @@ Rules:
   return response.choices[0]?.message?.content || "[]";
 }
 
-export { groq };
+export { getGroq };

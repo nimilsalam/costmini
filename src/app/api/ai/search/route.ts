@@ -1,15 +1,26 @@
 import { NextRequest } from "next/server";
 import { streamMedicineSearch } from "@/lib/ai";
+import { rateLimit } from "@/lib/cache";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    // Rate limit: 20 requests per minute per IP
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const { allowed } = rateLimit(`ai-search:${ip}`, 20, 60_000);
+    if (!allowed) {
+      return new Response(
+        JSON.stringify({ error: "Too many requests. Please wait a moment." }),
+        { status: 429, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const { query } = await req.json();
 
-    if (!query || typeof query !== "string" || query.trim().length < 2) {
+    if (!query || typeof query !== "string" || query.trim().length < 2 || query.trim().length > 500) {
       return new Response(
-        JSON.stringify({ error: "Query must be at least 2 characters" }),
+        JSON.stringify({ error: "Query must be 2-500 characters" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }

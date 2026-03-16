@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzePrescriptionImage } from "@/lib/ai";
 import { prisma } from "@/lib/db";
+import { rateLimit } from "@/lib/cache";
 
 export const runtime = "nodejs";
 
@@ -14,11 +15,30 @@ interface ExtractedMedicine {
 
 export async function POST(req: NextRequest) {
   try {
+    // Rate limit: 10 scans per minute per IP
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const { allowed } = rateLimit(`ai-scan:${ip}`, 10, 60_000);
+    if (!allowed) {
+      return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+    }
+
     const formData = await req.formData();
     const file = formData.get("image") as File | null;
 
     if (!file) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
+    }
+
+    // Validate file size (max 10MB)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      return NextResponse.json({ error: "Image too large (max 10MB)" }, { status: 413 });
+    }
+
+    // Validate file type
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: "Unsupported image format. Use JPEG, PNG, or WebP." }, { status: 400 });
     }
 
     if (!process.env.GROQ_API_KEY) {
@@ -30,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const base64 = Buffer.from(bytes).toString("base64");
-    const mimeType = file.type || "image/jpeg";
+    const mimeType = file.type;
 
     const extractedText = await analyzePrescriptionImage(base64, mimeType);
 

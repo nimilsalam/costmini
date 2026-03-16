@@ -14,7 +14,13 @@ import {
   Clock,
 } from "lucide-react";
 import Link from "next/link";
-import { formatPrice, calcSavings, whatsappShareUrl } from "@/lib/utils";
+import { formatPrice, calcSavings, whatsappShareUrl, cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface DrugPrice {
   source: string;
@@ -44,6 +50,12 @@ interface ScanResult {
   matchedDrug: MatchedDrug | null;
   alternatives: MatchedDrug[];
   confidence: number;
+}
+
+function ConfidenceBadge({ confidence }: { confidence: number }) {
+  const pct = Math.round(confidence * 100);
+  const variant = pct >= 90 ? "default" : pct >= 70 ? "secondary" : "outline";
+  return <Badge variant={variant}>{pct}% match</Badge>;
 }
 
 export default function ScanPage() {
@@ -139,40 +151,65 @@ export default function ScanPage() {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="text-center mb-8">
         <div className="flex items-center justify-center gap-2 mb-2">
-          <Sparkles size={24} className="text-[var(--color-primary)]" />
+          <Sparkles size={24} className="text-primary" />
           <h1 className="text-3xl font-bold text-gray-900">AI Prescription Scanner</h1>
         </div>
-        <p className="text-gray-500 max-w-xl mx-auto">
+        <p className="text-muted-foreground max-w-xl mx-auto">
           Upload your prescription photo. Our AI reads handwriting, identifies medicines, and instantly finds cheaper generic alternatives.
         </p>
       </div>
 
       {status === "idle" && (
         <div className="space-y-4">
-          <div onClick={() => fileRef.current?.click()} className="border-2 border-dashed border-gray-300 rounded-2xl p-12 text-center hover:border-[var(--color-primary)] hover:bg-teal-50/50 transition-all cursor-pointer">
-            <Upload size={48} className="mx-auto text-gray-400 mb-4" />
-            <p className="text-lg font-medium text-gray-700 mb-1">Upload Prescription Photo</p>
-            <p className="text-sm text-gray-500">Click to upload or drag and drop (JPG, PNG, PDF)</p>
-            <div className="flex items-center justify-center gap-4 mt-4">
-              <span className="flex items-center gap-1 text-xs text-teal-600 bg-teal-50 px-3 py-1 rounded-full"><Sparkles size={12} /> AI-Powered</span>
-              <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-3 py-1 rounded-full"><Clock size={12} /> ~5 seconds</span>
-            </div>
-            <input ref={fileRef} type="file" accept="image/*,.pdf" onChange={handleFileChange} className="hidden" />
-          </div>
+          <Card
+            className="border-2 border-dashed hover:border-primary hover:bg-accent/50 transition-all cursor-pointer"
+            onClick={() => fileRef.current?.click()}
+          >
+            <CardContent className="p-12 text-center">
+              <Upload size={48} className="mx-auto text-muted-foreground mb-4" />
+              <p className="text-lg font-medium text-gray-700 mb-1">Upload Prescription Photo</p>
+              <p className="text-sm text-muted-foreground">Click to upload or drag and drop (JPG, PNG, PDF)</p>
+              <div className="flex items-center justify-center gap-4 mt-4">
+                <Badge variant="secondary" className="bg-accent text-primary">
+                  <Sparkles size={12} className="mr-1" /> AI-Powered
+                </Badge>
+                <Badge variant="secondary" className="bg-blue-50 text-blue-600">
+                  <Clock size={12} className="mr-1" /> ~5 seconds
+                </Badge>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*,.pdf" onChange={handleFileChange} className="hidden" />
+            </CardContent>
+          </Card>
+
           <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-sm text-gray-400">or</span>
-            <div className="flex-1 h-px bg-gray-200" />
+            <Separator className="flex-1" />
+            <span className="text-sm text-muted-foreground">or</span>
+            <Separator className="flex-1" />
           </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
-            <button onClick={() => fileRef.current?.click()} className="flex items-center justify-center gap-2 px-6 py-4 rounded-xl border border-gray-200 hover:border-[var(--color-primary)] hover:bg-teal-50/50 transition-all">
-              <Camera size={24} className="text-[var(--color-primary)]" />
-              <div className="text-left"><p className="font-medium text-gray-900">Take Photo</p><p className="text-xs text-gray-500">Use your camera</p></div>
-            </button>
-            <button onClick={handleDemoScan} className="flex items-center justify-center gap-2 px-6 py-4 rounded-xl border border-[var(--color-primary)] bg-teal-50 hover:bg-teal-100 transition-all">
-              <Scan size={24} className="text-[var(--color-primary)]" />
-              <div className="text-left"><p className="font-medium text-[var(--color-primary)]">Try Demo Scan</p><p className="text-xs text-gray-500">See how it works</p></div>
-            </button>
+            <Button
+              variant="outline"
+              className="h-auto px-6 py-4 rounded-xl justify-start gap-3"
+              onClick={() => fileRef.current?.click()}
+            >
+              <Camera size={24} className="text-primary" />
+              <div className="text-left">
+                <p className="font-medium text-gray-900">Take Photo</p>
+                <p className="text-xs text-muted-foreground">Use your camera</p>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto px-6 py-4 rounded-xl justify-start gap-3 border-primary bg-accent hover:bg-primary/10"
+              onClick={handleDemoScan}
+            >
+              <Scan size={24} className="text-primary" />
+              <div className="text-left">
+                <p className="font-medium text-primary">Try Demo Scan</p>
+                <p className="text-xs text-muted-foreground">See how it works</p>
+              </div>
+            </Button>
           </div>
         </div>
       )}
@@ -180,128 +217,207 @@ export default function ScanPage() {
       {(status === "uploading" || status === "processing") && (
         <div className="text-center py-16">
           <div className="relative w-24 h-24 mx-auto mb-6">
-            <div className="absolute inset-0 rounded-2xl border-2 border-[var(--color-primary)] overflow-hidden">
+            <div className="absolute inset-0 rounded-2xl border-2 border-primary overflow-hidden">
               {previewUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={previewUrl} alt="Prescription" className="w-full h-full object-cover opacity-50" />
               )}
-              <div className="absolute inset-0 bg-[var(--color-primary)]/10" />
-              <div className="absolute left-0 right-0 h-0.5 bg-[var(--color-primary)] animate-scan-line" />
+              <div className="absolute inset-0 bg-primary/10" />
+              <div className="absolute left-0 right-0 h-0.5 bg-primary animate-scan-line" />
             </div>
           </div>
-          <Loader2 size={24} className="mx-auto text-[var(--color-primary)] animate-spin mb-3" />
-          <p className="text-gray-700 font-medium">{status === "uploading" ? "Uploading image..." : "AI is analyzing your prescription..."}</p>
-          <p className="text-sm text-gray-500 mt-1">Reading medicine names, dosages, and finding alternatives</p>
+          <Loader2 size={24} className="mx-auto text-primary animate-spin mb-3" />
+          <p className="text-gray-700 font-medium">
+            {status === "uploading" ? "Uploading image..." : "AI is analyzing your prescription..."}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">Reading medicine names, dosages, and finding alternatives</p>
+          <div className="mt-6 max-w-xs mx-auto space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
         </div>
       )}
 
       {status === "error" && (
-        <div className="text-center py-12">
-          <AlertCircle size={48} className="mx-auto text-red-400 mb-4" />
-          <p className="text-red-600 font-medium mb-2">{errorMsg}</p>
-          <button onClick={() => { setStatus("idle"); setResults([]); }} className="px-6 py-2 rounded-lg bg-[var(--color-primary)] text-white font-medium">Try Again</button>
+        <div className="py-12 space-y-4">
+          <Alert variant="destructive" className="max-w-md mx-auto">
+            <AlertCircle className="h-5 w-5" />
+            <AlertTitle>Scan Failed</AlertTitle>
+            <AlertDescription>{errorMsg}</AlertDescription>
+          </Alert>
+          <div className="text-center">
+            <Button
+              onClick={() => { setStatus("idle"); setResults([]); }}
+            >
+              Try Again
+            </Button>
+          </div>
         </div>
       )}
 
       {status === "done" && (
         <div className="space-y-6">
           <div className="flex items-center justify-center gap-2">
-            <span className="text-xs px-3 py-1 rounded-full bg-teal-50 text-teal-700 font-medium">
+            <Badge variant={scanMethod === "ai" ? "default" : "secondary"}>
               {scanMethod === "ai" ? "Analyzed by Groq AI" : "Demo Results"}
-            </span>
+            </Badge>
           </div>
 
           {results.length > 0 && totalSavings > 0 && (
-            <div className="bg-gradient-to-r from-green-500 to-teal-500 rounded-2xl p-6 text-white text-center">
-              <p className="text-green-100 text-sm mb-1">Switching to generics you could save</p>
-              <p className="text-4xl font-bold mb-1">{formatPrice(totalBrandCost - totalGenericCost)}</p>
-              <p className="text-green-100">That&apos;s {totalSavings}% savings on this prescription!</p>
-              <div className="flex justify-center gap-4 mt-4 text-sm">
-                <div><span className="text-green-200">Branded Total:</span> <span className="font-semibold line-through">{formatPrice(totalBrandCost)}</span></div>
-                <div><span className="text-green-200">Generic Total:</span> <span className="font-semibold">{formatPrice(totalGenericCost)}</span></div>
-              </div>
-            </div>
+            <Card className="bg-gradient-to-r from-green-500 to-teal-500 border-0 text-white">
+              <CardContent className="p-6 text-center">
+                <p className="text-green-100 text-sm mb-1">Switching to generics you could save</p>
+                <p className="text-4xl font-bold mb-1">{formatPrice(totalBrandCost - totalGenericCost)}</p>
+                <p className="text-green-100">That&apos;s {totalSavings}% savings on this prescription!</p>
+                <div className="flex justify-center gap-4 mt-4 text-sm">
+                  <div>
+                    <span className="text-green-200">Branded Total:</span>{" "}
+                    <span className="font-semibold line-through">{formatPrice(totalBrandCost)}</span>
+                  </div>
+                  <div>
+                    <span className="text-green-200">Generic Total:</span>{" "}
+                    <span className="font-semibold">{formatPrice(totalGenericCost)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {results.map((result, i) => {
             const drug = result.matchedDrug;
             const brandPrice = drug ? getPrice(drug) : 0;
             return (
-              <div key={i} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <div className="p-5 border-b border-gray-100">
+              <Card key={i} className="overflow-hidden">
+                <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <p className="text-xs text-gray-400">From prescription</p>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{Math.round(result.confidence * 100)}% match</span>
+                        <p className="text-xs text-muted-foreground">From prescription</p>
+                        <ConfidenceBadge confidence={result.confidence} />
                       </div>
-                      <h3 className="text-lg font-bold text-gray-900">{drug ? drug.name : result.extractedName}</h3>
-                      <p className="text-sm text-gray-500">{drug ? `${drug.composition} · ${drug.manufacturer}` : result.extractedGeneric || "Not found in database"}</p>
+                      <CardTitle className="text-lg">
+                        {drug ? drug.name : result.extractedName}
+                      </CardTitle>
+                      <CardDescription>
+                        {drug
+                          ? `${drug.composition} · ${drug.manufacturer}`
+                          : result.extractedGeneric || "Not found in database"}
+                      </CardDescription>
                       {(result.dosage || result.frequency || result.duration) && (
-                        <div className="flex gap-3 mt-2">
-                          {result.dosage && <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700">{result.dosage}</span>}
-                          {result.frequency && <span className="text-xs px-2 py-1 rounded bg-purple-50 text-purple-700">{result.frequency}</span>}
-                          {result.duration && <span className="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700">{result.duration}</span>}
+                        <div className="flex gap-2 mt-2">
+                          {result.dosage && (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                              {result.dosage}
+                            </Badge>
+                          )}
+                          {result.frequency && (
+                            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                              {result.frequency}
+                            </Badge>
+                          )}
+                          {result.duration && (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                              {result.duration}
+                            </Badge>
+                          )}
                         </div>
                       )}
                     </div>
                     {drug && (
                       <div className="text-right">
-                        <p className="text-sm text-gray-400">Brand Price</p>
+                        <p className="text-sm text-muted-foreground">Brand Price</p>
                         <p className="text-xl font-bold text-gray-900">{formatPrice(brandPrice)}</p>
                       </div>
                     )}
                   </div>
-                </div>
+                </CardHeader>
+
                 {result.alternatives.length > 0 && (
-                  <div className="bg-green-50/50 p-5">
-                    <p className="text-sm font-semibold text-green-700 mb-3 flex items-center gap-1"><Pill size={14} /> Cheaper Generic Alternatives</p>
+                  <CardContent className="bg-green-50/50 pt-4">
+                    <p className="text-sm font-semibold text-green-700 mb-3 flex items-center gap-1">
+                      <Pill size={14} /> Cheaper Generic Alternatives
+                    </p>
                     {result.alternatives.map((alt, j) => {
                       const altPrice = getPrice(alt);
                       const savePct = calcSavings(brandPrice, altPrice);
                       return (
-                        <Link key={j} href={`/medicines/${alt.slug}`} className="flex items-center justify-between p-3 rounded-lg bg-white hover:shadow-md transition-all mb-2">
+                        <Link
+                          key={j}
+                          href={`/medicines/${alt.slug}`}
+                          className="flex items-center justify-between p-3 rounded-lg bg-white hover:shadow-md transition-all mb-2"
+                        >
                           <div>
                             <span className="font-medium text-gray-900">{alt.name}</span>
-                            <p className="text-xs text-gray-500">{alt.manufacturer} · {alt.packSize}</p>
+                            {alt.isGeneric && (
+                              <Badge variant="secondary" className="ml-2 text-xs bg-green-100 text-green-700">
+                                Generic
+                              </Badge>
+                            )}
+                            <p className="text-xs text-muted-foreground">{alt.manufacturer} · {alt.packSize}</p>
                           </div>
                           <div className="text-right flex items-center gap-3">
                             <div>
                               <p className="text-lg font-bold text-green-600">{formatPrice(altPrice)}</p>
-                              <p className="text-xs text-green-600 font-medium">Save {savePct}%</p>
+                              <Badge variant="outline" className="text-green-600 border-green-200 text-xs">
+                                Save {savePct}%
+                              </Badge>
                             </div>
-                            <ArrowRight size={16} className="text-gray-400" />
+                            <ArrowRight size={16} className="text-muted-foreground" />
                           </div>
                         </Link>
                       );
                     })}
-                  </div>
+                  </CardContent>
                 )}
+
                 {!drug && (
-                  <div className="p-4 bg-amber-50">
-                    <p className="text-sm text-amber-700">This medicine is not yet in our database. We&apos;re expanding coverage regularly.</p>
-                  </div>
+                  <CardFooter className="bg-amber-50 py-3">
+                    <Alert className="border-amber-200 bg-transparent">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-amber-700">
+                        This medicine is not yet in our database. We&apos;re expanding coverage regularly.
+                      </AlertDescription>
+                    </Alert>
+                  </CardFooter>
                 )}
-              </div>
+              </Card>
             );
           })}
 
           {results.length === 0 && (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No medicines could be identified. Try a clearer photo or search manually.</p>
-              <Link href="/search" className="inline-block mt-4 px-6 py-2 rounded-lg bg-[var(--color-primary)] text-white font-medium">AI Search</Link>
-            </div>
+            <Card>
+              <CardContent className="text-center py-8">
+                <p className="text-muted-foreground">No medicines could be identified. Try a clearer photo or search manually.</p>
+                <Button asChild className="mt-4">
+                  <Link href="/search">AI Search</Link>
+                </Button>
+              </CardContent>
+            </Card>
           )}
 
           <div className="flex flex-col sm:flex-row gap-4">
-            <button onClick={() => { setStatus("idle"); setResults([]); setPreviewUrl(null); }} className="flex-1 px-6 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors">
+            <Button
+              variant="outline"
+              className="flex-1 py-3 rounded-xl"
+              onClick={() => { setStatus("idle"); setResults([]); setPreviewUrl(null); }}
+            >
               Scan Another Prescription
-            </button>
+            </Button>
             {results.length > 0 && (
-              <a href={whatsappShareUrl(`💊 CostMini AI Scan Results!\n\nI can save ${totalSavings}% (${formatPrice(totalBrandCost - totalGenericCost)}) by switching to generics.\n\nScan your prescription: costmini.in/scan`)}
-                target="_blank" rel="noopener noreferrer" className="flex-1 px-6 py-3 rounded-xl bg-green-500 text-white font-medium hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
-                <Share2 size={18} /> Share on WhatsApp
-              </a>
+              <Button
+                asChild
+                className="flex-1 py-3 rounded-xl bg-green-500 hover:bg-green-600 text-white"
+              >
+                <a
+                  href={whatsappShareUrl(`CostMini AI Scan Results!\n\nI can save ${totalSavings}% (${formatPrice(totalBrandCost - totalGenericCost)}) by switching to generics.\n\nScan your prescription: costmini.in/scan`)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2"
+                >
+                  <Share2 size={18} /> Share on WhatsApp
+                </a>
+              </Button>
             )}
           </div>
         </div>
