@@ -2,12 +2,41 @@
 
 import { use, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { ArrowLeft, Shield, Share2, ExternalLink, AlertCircle, Loader2, Clock, RefreshCw, Zap, ShieldCheck, Award, Globe2, Building2 } from "lucide-react";
 import Image from "next/image";
+import {
+  ArrowLeft,
+  Shield,
+  Share2,
+  ExternalLink,
+  AlertCircle,
+  Loader2,
+  Clock,
+  RefreshCw,
+  Zap,
+  ShieldCheck,
+  Award,
+  Globe2,
+  Building2,
+  Check,
+  Truck,
+  Star,
+  ChevronDown,
+  ChevronUp,
+  Pill,
+  FlaskConical,
+  Tag,
+} from "lucide-react";
 import { getPharmacyProfile } from "@/lib/pharmacy-profiles";
-import { formatPrice, calcSavings, whatsappShareUrl, whatsappDrugShareText } from "@/lib/utils";
+import { cn, formatPrice, calcSavings, whatsappShareUrl, whatsappDrugShareText } from "@/lib/utils";
 import { getFreshness } from "@/lib/freshness";
 import { usePriceStream, type StreamedPrice } from "@/hooks/usePriceStream";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 
 interface Drug {
   id: string;
@@ -44,6 +73,13 @@ interface Drug {
     whoPrequalified: boolean;
     eugmpCompliant: boolean;
   } | null;
+  compositionGroup?: {
+    id: string;
+    displayName: string;
+    drugCount: number;
+    lowestPrice: number | null;
+    highestPrice: number | null;
+  } | null;
 }
 
 interface Alternative {
@@ -56,6 +92,8 @@ interface Alternative {
   whoCertified: boolean;
   lowestPrice: number;
   savingsPercent: number;
+  prices?: { source: string; sellingPrice: number; mrp: number; inStock: boolean; sourceUrl?: string; lastChecked: string }[];
+  manufacturerRef?: { tier: string; overallScore: number } | null;
 }
 
 interface ScoreInfo {
@@ -63,6 +101,17 @@ interface ScoreInfo {
   badge: "best-value" | "recommended" | "good-option" | null;
   explanation: string;
 }
+
+const logoSlug: Record<string, string> = {
+  "1mg": "1mg",
+  PharmEasy: "pharmeasy",
+  Netmeds: "netmeds",
+  Apollo: "apollo",
+  "Flipkart Health": "flipkart",
+  Truemeds: "truemeds",
+  MedPlus: "medplus",
+  "Amazon Pharmacy": "amazon",
+};
 
 export default function DrugDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -72,6 +121,7 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
   const [bestOption, setBestOption] = useState<{ source: string; total: number; badge: string | null; explanation: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [expandedBrand, setExpandedBrand] = useState<string | null>(null);
 
   const { prices: streamedPrices, progress, total, isStreaming, status, refresh } = usePriceStream(id);
 
@@ -97,7 +147,6 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
     fetchDrug();
   }, [id]);
 
-  // Merge DB prices with streamed prices (streamed take priority)
   const displayPrices = useMemo(() => {
     if (streamedPrices.length === 0 && drug?.prices) {
       return drug.prices.map((p) => ({
@@ -123,482 +172,489 @@ export default function DrugDetailPage({ params }: { params: Promise<{ id: strin
     ? Math.max(...sortedPrices.map((p) => p.mrp))
     : drug?.highestMrp || 0;
 
+  // Build unified brand list: current drug + alternatives, sorted by lowest price
+  const allBrands = useMemo(() => {
+    if (!drug) return [];
+    const currentBrand = {
+      id: drug.id,
+      name: drug.name,
+      slug: drug.slug,
+      manufacturer: drug.manufacturer,
+      packSize: drug.packSize,
+      isGeneric: drug.isGeneric,
+      whoCertified: drug.whoCertified,
+      lowestPrice: cheapest,
+      highestMrp: highestMrp,
+      pharmacyCount: sortedPrices.length,
+      isCurrent: true,
+      manufacturerTier: drug.manufacturerRef?.tier || "standard",
+      manufacturerScore: drug.manufacturerRef?.overallScore || 0,
+    };
+
+    const altBrands = alternatives.map((alt) => ({
+      id: alt.id,
+      name: alt.name,
+      slug: alt.slug,
+      manufacturer: alt.manufacturer,
+      packSize: alt.packSize,
+      isGeneric: alt.isGeneric,
+      whoCertified: alt.whoCertified,
+      lowestPrice: alt.lowestPrice,
+      highestMrp: 0,
+      pharmacyCount: alt.prices?.length || 0,
+      isCurrent: false,
+      manufacturerTier: alt.manufacturerRef?.tier || "standard",
+      manufacturerScore: alt.manufacturerRef?.overallScore || 0,
+    }));
+
+    return [currentBrand, ...altBrands].sort((a, b) => {
+      if (a.lowestPrice === 0) return 1;
+      if (b.lowestPrice === 0) return -1;
+      return a.lowestPrice - b.lowestPrice;
+    });
+  }, [drug, alternatives, cheapest, highestMrp, sortedPrices.length]);
+
+  const overallCheapest = allBrands.length > 0 && allBrands[0].lowestPrice > 0
+    ? allBrands[0].lowestPrice : 0;
+
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-16 text-center">
-        <Loader2 size={32} className="mx-auto text-[var(--color-primary)] animate-spin mb-4" />
-        <p className="text-gray-500">Loading medicine details...</p>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+        <Skeleton className="h-5 w-36 mb-6" />
+        <Skeleton className="h-6 w-32 mb-1" />
+        <Skeleton className="h-9 w-72 mb-2" />
+        <Skeleton className="h-4 w-48 mb-8" />
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-10 w-10 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-7 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
 
   if (notFound || !drug) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-16 text-center">
-        <p className="text-gray-500 text-lg">Medicine not found</p>
-        <Link href="/medicines" className="text-[var(--color-primary)] mt-4 inline-block">
-          Back to Medicines
-        </Link>
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
+        <p className="text-muted-foreground text-lg">Medicine not found</p>
+        <Button asChild variant="link" className="mt-4">
+          <Link href="/medicines">Back to Medicines</Link>
+        </Button>
       </div>
     );
   }
 
-  const savings = calcSavings(highestMrp, cheapest);
-  const shareText = whatsappDrugShareText(drug.name, highestMrp, cheapest, savings);
+  const savings = calcSavings(highestMrp, overallCheapest || cheapest);
+  const shareText = whatsappDrugShareText(drug.name, highestMrp, overallCheapest || cheapest, savings);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <Link
-        href="/medicines"
-        className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[var(--color-primary)] mb-6"
-      >
-        <ArrowLeft size={16} />
-        Back to Medicines
-      </Link>
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      {/* Back nav */}
+      <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2 text-muted-foreground hover:text-primary">
+        <Link href="/medicines">
+          <ArrowLeft size={16} />
+          Medicines
+        </Link>
+      </Button>
 
-      {/* Drug Header */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
-        <div className="flex flex-col sm:flex-row justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <h1 className="text-2xl font-bold text-gray-900">{drug.name}</h1>
-              {drug.isGeneric && (
-                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
-                  Generic
-                </span>
-              )}
-              {drug.whoCertified && (
-                <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium flex items-center gap-1">
-                  <Shield size={12} />
-                  WHO-GMP
-                </span>
-              )}
-            </div>
-            <p className="text-gray-600 mb-1">{drug.composition}</p>
-            <div className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
-              {drug.manufacturerRef ? (
-                <Link
-                  href={`/manufacturers/${drug.manufacturerRef.slug}`}
-                  className="inline-flex items-center gap-1.5 hover:text-[var(--color-primary)] transition-colors"
-                >
-                  <Building2 size={13} className="text-gray-400" />
-                  {drug.manufacturer}
-                  <span
-                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                      drug.manufacturerRef.tier === "premium"
-                        ? "bg-amber-50 text-amber-700"
-                        : drug.manufacturerRef.tier === "trusted"
-                          ? "bg-blue-50 text-blue-700"
-                          : drug.manufacturerRef.tier === "government"
-                            ? "bg-green-50 text-green-700"
-                            : "bg-gray-50 text-gray-600"
-                    }`}
-                  >
-                    {drug.manufacturerRef.tier === "premium"
-                      ? "Premium"
-                      : drug.manufacturerRef.tier === "trusted"
-                        ? "Trusted"
-                        : drug.manufacturerRef.tier === "government"
-                          ? "Govt."
-                          : "Standard"}
-                    {" "}
-                    ({Math.round(drug.manufacturerRef.overallScore)})
-                  </span>
-                </Link>
-              ) : (
-                <span className="flex items-center gap-1.5">
-                  <Building2 size={13} className="text-gray-400" />
-                  {drug.manufacturer}
-                </span>
-              )}
-              <span className="text-gray-300">&middot;</span>
-              <span>{drug.dosageForm}</span>
-              <span className="text-gray-300">&middot;</span>
-              <span>{drug.packSize}</span>
-            </div>
-            {/* Regulatory badges */}
-            {drug.manufacturerRef && (
-              <div className="flex items-center gap-2 mt-1.5">
-                {drug.manufacturerRef.usFdaApproved && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">
-                    <Shield size={10} /> US-FDA
-                  </span>
-                )}
-                {drug.manufacturerRef.whoPrequalified && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600">
-                    <Globe2 size={10} /> WHO
-                  </span>
-                )}
-                {drug.manufacturerRef.eugmpCompliant && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-600">
-                    <Award size={10} /> EU-GMP
-                  </span>
-                )}
-              </div>
-            )}
-            {drug.prescriptionReq && (
-              <p className="text-sm text-amber-600 mt-2 flex items-center gap-1">
-                <AlertCircle size={14} />
-                Prescription Required
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <div className="text-sm text-gray-400">Starting from</div>
-            <div className="text-3xl font-bold text-[var(--color-primary)]">
-              {cheapest > 0 ? formatPrice(cheapest) : "—"}
-            </div>
-            {savings > 0 && (
-              <div className="flex items-center gap-2 justify-end mt-1">
-                <span className="text-sm text-gray-400 line-through">
-                  MRP {formatPrice(highestMrp)}
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-sm font-semibold">
-                  Save {savings}%
-                </span>
-              </div>
-            )}
-          </div>
+      {/* ═══ SALT / COMPOSITION HERO ═══ */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+          <FlaskConical size={14} className="text-primary" />
+          <span>Salt Composition</span>
         </div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">
+          {drug.composition}
+        </h1>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+          <span>{drug.category}</span>
+          <span className="text-border">·</span>
+          <span>{drug.dosageForm}</span>
+          {drug.prescriptionReq && (
+            <>
+              <span className="text-border">·</span>
+              <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-transparent text-xs">
+                Rx Required
+              </Badge>
+            </>
+          )}
+        </div>
+
+        {/* Price summary for this salt */}
+        {overallCheapest > 0 && (
+          <div className="mt-4 p-4 rounded-xl bg-green-50 border border-green-200">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <p className="text-xs text-green-700 font-medium mb-0.5">Lowest price for this salt</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-green-700">{formatPrice(overallCheapest)}</span>
+                  {highestMrp > overallCheapest && (
+                    <>
+                      <span className="text-sm text-green-600/70 line-through">{formatPrice(highestMrp)}</span>
+                      <Badge className="bg-green-200 text-green-800 hover:bg-green-200 border-none text-xs font-semibold">
+                        Save {calcSavings(highestMrp, overallCheapest)}%
+                      </Badge>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="text-right text-xs text-green-700">
+                <div className="font-medium">
+                  {drug.compositionGroup
+                    ? `${drug.compositionGroup.drugCount} brands in India`
+                    : `${allBrands.length} brands available`}
+                </div>
+                <div>{sortedPrices.length} pharmacies compared</div>
+                {drug.compositionGroup && drug.compositionGroup.lowestPrice && drug.compositionGroup.highestPrice && (
+                  <div className="text-[10px] text-green-600/80 mt-0.5">
+                    Market range: {formatPrice(drug.compositionGroup.lowestPrice)} - {formatPrice(drug.compositionGroup.highestPrice)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stale Price Warning */}
       {!isStreaming && displayPrices.some((p) => getFreshness(p.lastChecked).level === "stale") && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 flex items-center justify-between text-sm text-amber-800">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={16} className="flex-shrink-0" />
-            Some prices haven&apos;t been updated recently.
-          </div>
-          <button
-            onClick={refresh}
-            className="flex items-center gap-1 text-amber-700 hover:text-amber-900 font-medium"
-          >
-            <RefreshCw size={14} />
-            Refresh Now
-          </button>
-        </div>
+        <Alert className="mb-4 bg-amber-50 border-amber-200 text-amber-800 rounded-xl">
+          <AlertCircle size={16} className="flex-shrink-0 text-amber-600" />
+          <AlertDescription className="flex items-center justify-between w-full">
+            <span>Some prices may be outdated.</span>
+            <Button variant="ghost" size="sm" onClick={refresh} className="text-amber-700 hover:text-amber-900 hover:bg-amber-100">
+              <RefreshCw size={14} /> Refresh
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* CostMini Recommendation */}
-      {bestOption && bestOption.total >= 50 && (
-        <div className={`rounded-2xl border p-4 mb-4 ${
-          bestOption.badge === "best-value"
-            ? "bg-green-50 border-green-200"
-            : bestOption.badge === "recommended"
-              ? "bg-blue-50 border-blue-200"
-              : "bg-gray-50 border-gray-200"
-        }`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm ${
-                bestOption.badge === "best-value"
-                  ? "bg-green-500"
-                  : bestOption.badge === "recommended"
-                    ? "bg-blue-500"
-                    : "bg-gray-500"
-              }`}>
-                {bestOption.total}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">CostMini Recommendation</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                    bestOption.badge === "best-value"
-                      ? "bg-green-100 text-green-700"
-                      : bestOption.badge === "recommended"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-gray-100 text-gray-600"
-                  }`}>
-                    {bestOption.badge === "best-value" ? "Best Value" : bestOption.badge === "recommended" ? "Recommended" : "Good Option"}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500">
-                  Buy from <strong>{bestOption.source}</strong> — {bestOption.explanation}
-                </p>
-              </div>
-            </div>
+      {/* ═══ BRAND COMPARISON — THE MAIN EVENT ═══ */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              {drug.compositionGroup
+                ? `${drug.compositionGroup.displayName}`
+                : "All Brands · Same Salt"}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {allBrands.length} brand{allBrands.length !== 1 ? "s" : ""} compared — sorted by lowest price
+              {drug.compositionGroup && drug.compositionGroup.drugCount > allBrands.length && (
+                <span className="text-primary"> ({drug.compositionGroup.drugCount} total in India)</span>
+              )}
+            </p>
           </div>
-        </div>
-      )}
-
-      {/* Price Comparison Table */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Price Comparison Across Pharmacies
-          </h2>
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={refresh}
             disabled={isStreaming}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-teal-50"
+            className="text-xs h-8"
           >
             {isStreaming ? (
               <>
-                <Loader2 size={14} className="animate-spin" />
-                Checking...
+                <Loader2 size={13} className="animate-spin" />
+                {progress}/{total}
               </>
             ) : (
               <>
-                <Zap size={14} />
+                <Zap size={13} />
                 Live Prices
               </>
             )}
-          </button>
+          </Button>
         </div>
 
-        {/* Streaming Progress Bar */}
+        {/* Streaming Progress */}
         {isStreaming && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-              <span>{status}</span>
-              <span>{progress}/{total} pharmacies</span>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-1.5">
-              <div
-                className="bg-[var(--color-primary)] h-1.5 rounded-full transition-all duration-500"
-                style={{ width: `${total > 0 ? (progress / total) * 100 : 0}%` }}
-              />
-            </div>
+          <div className="mb-3">
+            <Progress value={total > 0 ? (progress / total) * 100 : 0} className="h-1" />
+            <p className="text-[11px] text-muted-foreground mt-1">{status}</p>
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-sm text-gray-500 border-b border-gray-100">
-                <th className="pb-3 font-medium">Pharmacy</th>
-                <th className="pb-3 font-medium">MRP</th>
-                <th className="pb-3 font-medium">Selling Price</th>
-                <th className="pb-3 font-medium">Savings</th>
-                <th className="pb-3 font-medium">Score</th>
-                <th className="pb-3 font-medium">Stock</th>
-                <th className="pb-3 font-medium">Updated</th>
-                <th className="pb-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedPrices.map((price, i) => {
-                const pSavings = calcSavings(price.mrp, price.sellingPrice);
-                const isCheapest = price.sellingPrice === cheapest && cheapest > 0;
-                const freshness = getFreshness(price.lastChecked);
-                const isNew = !price.isCached;
-                const pharma = getPharmacyProfile(price.source);
-                const logoSlug: Record<string, string> = {
-                  "1mg": "1mg", PharmEasy: "pharmeasy", Netmeds: "netmeds",
-                  Apollo: "apollo", "Flipkart Health": "flipkart",
-                  Truemeds: "truemeds", MedPlus: "medplus", "Amazon Pharmacy": "amazon",
-                };
-                return (
-                  <tr
-                    key={price.source}
-                    className={`border-b border-gray-50 transition-all duration-300 ${
-                      bestOption?.source === price.source ? "bg-green-50/50" : isCheapest ? "bg-teal-50/30" : ""
-                    } ${isNew ? "animate-fadeIn" : ""}`}
-                    style={{ animationDelay: `${i * 50}ms` }}
-                  >
-                    <td className="py-3">
-                      <div className="flex items-center gap-2">
-                        {pharma && (
-                          <Image
-                            src={`/pharmacies/${logoSlug[price.source] || "1mg"}.svg`}
-                            alt={pharma.name}
-                            width={28}
-                            height={28}
-                            className="rounded-md flex-shrink-0"
-                          />
+        {/* Brand Cards */}
+        <div className="space-y-3">
+          {allBrands.map((brand, i) => {
+            const isCheapestBrand = i === 0 && brand.lowestPrice > 0;
+            const isCurrentDrug = brand.isCurrent;
+            const isExpanded = expandedBrand === brand.id;
+
+            return (
+              <div key={brand.id}>
+                <Card className={cn(
+                  "transition-all duration-200",
+                  isCheapestBrand ? "border-green-300 bg-green-50/30" : "",
+                  isCurrentDrug ? "ring-1 ring-primary/20" : "",
+                )}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      {/* Brand Icon */}
+                      <div className={cn(
+                        "w-10 h-10 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
+                        brand.isGeneric ? "bg-green-100" : "bg-primary/10"
+                      )}>
+                        <Pill size={18} className={brand.isGeneric ? "text-green-600" : "text-primary"} />
+                      </div>
+
+                      {/* Brand Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {isCurrentDrug ? (
+                            <span className="font-semibold text-foreground text-sm">{brand.name}</span>
+                          ) : (
+                            <Link href={`/medicines/${brand.slug}`} className="font-semibold text-foreground text-sm hover:text-primary transition-colors">
+                              {brand.name}
+                            </Link>
+                          )}
+                          {brand.isGeneric && (
+                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none text-[10px] px-1.5 py-0">
+                              Generic
+                            </Badge>
+                          )}
+                          {isCheapestBrand && (
+                            <Badge className="bg-green-600 text-white hover:bg-green-600 border-none text-[10px] px-1.5 py-0">
+                              Cheapest
+                            </Badge>
+                          )}
+                          {isCurrentDrug && !isCheapestBrand && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              Viewing
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
+                          <span className="flex items-center gap-0.5">
+                            <Building2 size={10} />
+                            {brand.manufacturer}
+                          </span>
+                          {brand.manufacturerTier && brand.manufacturerTier !== "standard" && (
+                            <Badge variant="secondary" className={cn(
+                              "text-[9px] px-1 py-0 border-transparent",
+                              brand.manufacturerTier === "premium" ? "bg-amber-50 text-amber-700" :
+                              brand.manufacturerTier === "trusted" ? "bg-blue-50 text-blue-700" :
+                              brand.manufacturerTier === "government" ? "bg-green-50 text-green-700" : ""
+                            )}>
+                              {brand.manufacturerTier === "premium" ? "Premium" : brand.manufacturerTier === "trusted" ? "Trusted" : "Govt."}
+                            </Badge>
+                          )}
+                          <span className="text-border">·</span>
+                          <span>{brand.packSize}</span>
+                          {brand.whoCertified && (
+                            <>
+                              <span className="text-border">·</span>
+                              <span className="flex items-center gap-0.5 text-green-600">
+                                <Shield size={9} /> WHO
+                              </span>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Pharmacy count + expand toggle for current drug */}
+                        {isCurrentDrug && brand.pharmacyCount > 0 && (
+                          <button
+                            onClick={() => setExpandedBrand(isExpanded ? null : brand.id)}
+                            className="flex items-center gap-1 mt-1.5 text-[11px] text-primary hover:text-primary/80 transition-colors font-medium"
+                          >
+                            <Tag size={10} />
+                            {brand.pharmacyCount} pharmacy prices
+                            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          </button>
                         )}
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium text-gray-900">{pharma?.name || price.source}</span>
-                            {isCheapest && (
-                              <span className="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700 font-medium">
-                                Cheapest
-                              </span>
-                            )}
-                            {isNew && (
-                              <span className="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-700 font-medium">
-                                Live
-                              </span>
-                            )}
-                          </div>
-                          {pharma && (
-                            <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
-                              <span>{pharma.shippingInfo}</span>
-                              {pharma.authenticMeds && (
-                                <span className="flex items-center gap-0.5 text-green-500">
-                                  <ShieldCheck size={10} />
-                                  Licensed
+                        {!isCurrentDrug && brand.pharmacyCount > 0 && (
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            Available at {brand.pharmacyCount} {brand.pharmacyCount === 1 ? "pharmacy" : "pharmacies"}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Price */}
+                      <div className="shrink-0 text-right">
+                        {brand.lowestPrice > 0 ? (
+                          <>
+                            <div className={cn(
+                              "text-lg font-bold",
+                              isCheapestBrand ? "text-green-700" : "text-foreground"
+                            )}>
+                              {formatPrice(brand.lowestPrice)}
+                            </div>
+                            {brand.highestMrp > brand.lowestPrice && (
+                              <div className="flex items-center gap-1 justify-end">
+                                <span className="text-[11px] text-muted-foreground line-through">
+                                  {formatPrice(brand.highestMrp)}
                                 </span>
-                              )}
+                                <span className="text-[11px] font-medium text-green-600">
+                                  {calcSavings(brand.highestMrp, brand.lowestPrice)}% off
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">N/A</span>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Expanded Pharmacy Prices for current drug */}
+                {isCurrentDrug && isExpanded && (
+                  <div className="mt-1 ml-4 sm:ml-6 space-y-2 border-l-2 border-primary/20 pl-4 py-2">
+                    {sortedPrices.map((price) => {
+                      const pSavings = calcSavings(price.mrp, price.sellingPrice);
+                      const isCheapestPharmacy = price.sellingPrice === cheapest && cheapest > 0;
+                      const freshness = getFreshness(price.lastChecked);
+                      const pharma = getPharmacyProfile(price.source);
+
+                      return (
+                        <div
+                          key={price.source}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-lg bg-card border",
+                            isCheapestPharmacy ? "border-primary/30 bg-primary/[0.02]" : "border-border"
+                          )}
+                        >
+                          {/* Pharmacy logo */}
+                          {pharma ? (
+                            <Image
+                              src={`/pharmacies/${logoSlug[price.source] || "1mg"}.svg`}
+                              alt={pharma.name}
+                              width={32}
+                              height={32}
+                              className="rounded-md shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-md bg-accent flex items-center justify-center shrink-0">
+                              <Pill size={14} className="text-muted-foreground" />
                             </div>
                           )}
+
+                          {/* Pharmacy info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-foreground text-sm">{pharma?.name || price.source}</span>
+                              {isCheapestPharmacy && (
+                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none text-[10px] px-1.5 py-0">
+                                  Lowest
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                              {pharma && (
+                                <>
+                                  <span className="flex items-center gap-0.5">
+                                    <Star size={9} className="text-amber-400 fill-amber-400" />
+                                    {pharma.rating}
+                                  </span>
+                                  <span className="flex items-center gap-0.5">
+                                    <Truck size={9} />
+                                    {pharma.shippingInfo.replace("Free delivery on orders above ", "Free >")}
+                                  </span>
+                                </>
+                              )}
+                              <span className={cn("flex items-center gap-0.5", freshness.color)}>
+                                <Clock size={9} />
+                                {freshness.label}
+                              </span>
+                              <span className={price.inStock ? "text-green-600" : "text-destructive"}>
+                                {price.inStock ? <span className="flex items-center gap-0.5"><Check size={9} /> In Stock</span> : "Out of Stock"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Price + Buy */}
+                          <div className="shrink-0 flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="text-sm font-bold text-foreground">{formatPrice(price.sellingPrice)}</div>
+                              {pSavings > 0 && (
+                                <span className="text-[10px] text-green-600">{pSavings}% off</span>
+                              )}
+                            </div>
+                            {price.sourceUrl ? (
+                              <Button
+                                asChild
+                                size="sm"
+                                className="rounded-lg text-xs h-7 px-2.5"
+                                style={{
+                                  backgroundColor: pharma?.color || undefined,
+                                  color: pharma?.textColor || "#fff",
+                                }}
+                              >
+                                <a href={price.sourceUrl} target="_blank" rel="noopener noreferrer">
+                                  Buy <ExternalLink size={10} className="ml-0.5" />
+                                </a>
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-3 text-gray-500">{formatPrice(price.mrp)}</td>
-                    <td className="py-3 font-semibold text-gray-900">{formatPrice(price.sellingPrice)}</td>
-                    <td className="py-3">
-                      {pSavings > 0 ? (
-                        <span className="text-green-600 font-medium">{pSavings}% off</span>
-                      ) : (
-                        <span className="text-gray-400">&mdash;</span>
-                      )}
-                    </td>
-                    <td className="py-3">
-                      {scores[price.source] ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-sm font-bold ${
-                            scores[price.source].total >= 80
-                              ? "text-green-600"
-                              : scores[price.source].total >= 65
-                                ? "text-blue-600"
-                                : scores[price.source].total >= 50
-                                  ? "text-gray-600"
-                                  : "text-gray-400"
-                          }`}>
-                            {scores[price.source].total}
-                          </span>
-                          {scores[price.source].badge && (
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              scores[price.source].badge === "best-value"
-                                ? "bg-green-100 text-green-700"
-                                : scores[price.source].badge === "recommended"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-gray-100 text-gray-600"
-                            }`}>
-                              {scores[price.source].badge === "best-value"
-                                ? "Best"
-                                : scores[price.source].badge === "recommended"
-                                  ? "Rec."
-                                  : "OK"}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-300">&mdash;</span>
-                      )}
-                    </td>
-                    <td className="py-3">
-                      <span className={`text-sm ${price.inStock ? "text-green-600" : "text-red-500"}`}>
-                        {price.inStock ? "In Stock" : "Out of Stock"}
-                      </span>
-                    </td>
-                    <td className="py-3">
-                      <span className={`text-xs flex items-center gap-1 ${freshness.color}`}>
-                        <Clock size={12} />
-                        {freshness.label}
-                      </span>
-                    </td>
-                    <td className="py-3">
-                      {price.sourceUrl ? (
-                        <a
-                          href={price.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                          style={{
-                            backgroundColor: pharma?.color || "var(--color-primary)",
-                            color: pharma?.textColor || "#fff",
-                          }}
-                        >
-                          Buy on {pharma?.shortName || price.source} <ExternalLink size={11} />
-                        </a>
-                      ) : (
-                        <span className="text-gray-300 text-sm">N/A</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {sortedPrices.length === 0 && !isStreaming && (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-gray-400">
-                    No prices available.{" "}
-                    <button onClick={refresh} className="text-[var(--color-primary)] hover:underline">
-                      Check live prices
-                    </button>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {allBrands.length === 0 && !isStreaming && (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground mb-2">No prices available yet.</p>
+                <Button variant="outline" onClick={refresh} className="text-primary">
+                  <Zap size={14} /> Check Live Prices
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
-      {/* Generic Alternatives */}
-      {alternatives.length > 0 && (
-        <div className="bg-gradient-to-r from-green-50 to-teal-50 rounded-2xl border border-green-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">
-            {drug.isGeneric ? "Branded Versions" : "Cheaper Generic Alternatives"}
-          </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Same composition ({drug.composition}), from certified manufacturers
-          </p>
-          <div className="space-y-3">
-            {alternatives.map((alt) => {
-              const altCheapest = alt.lowestPrice;
-              const altSavings = calcSavings(highestMrp, altCheapest);
-              return (
-                <Link
-                  key={alt.id}
-                  href={`/medicines/${alt.slug}`}
-                  className="block bg-white rounded-xl p-4 hover:shadow-md transition-all"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">{alt.name}</span>
-                        {alt.isGeneric && (
-                          <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
-                            Generic
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-500">{alt.manufacturer} &middot; {alt.packSize}</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xl font-bold text-green-600">{formatPrice(altCheapest)}</div>
-                      {altSavings > 0 && (
-                        <span className="text-sm text-green-600">Save {altSavings}%</span>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+      {/* ═══ DRUG INFO ═══ */}
+      {(drug.uses || drug.sideEffects) && (
+        <div className="grid sm:grid-cols-2 gap-4 mb-6">
+          {drug.uses && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-sm font-semibold text-foreground mb-1.5">Uses</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{drug.uses}</p>
+              </CardContent>
+            </Card>
+          )}
+          {drug.sideEffects && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-sm font-semibold text-foreground mb-1.5">Side Effects</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{drug.sideEffects}</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
-      {/* Drug Info */}
-      <div className="grid sm:grid-cols-2 gap-6 mb-6">
-        {drug.uses && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-900 mb-3">Uses</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">{drug.uses}</p>
-          </div>
-        )}
-        {drug.sideEffects && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-900 mb-3">Side Effects</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">{drug.sideEffects}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Share CTA */}
-      <div className="bg-green-50 rounded-2xl border border-green-200 p-6 text-center">
-        <p className="text-gray-700 font-medium mb-3">Help someone save on their medicines</p>
-        <a
-          href={whatsappShareUrl(shareText)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-green-500 text-white font-semibold hover:bg-green-600 transition-colors"
-        >
-          <Share2 size={18} />
-          Share on WhatsApp
-        </a>
-      </div>
+      {/* ═══ WHATSAPP SHARE ═══ */}
+      <Card className="bg-green-50 border-green-200">
+        <CardContent className="p-5 text-center">
+          <p className="text-foreground font-medium text-sm mb-3">Know someone who takes {drug.composition}?</p>
+          <Button asChild className="bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold">
+            <a href={whatsappShareUrl(shareText)} target="_blank" rel="noopener noreferrer">
+              <Share2 size={16} />
+              Share Savings on WhatsApp
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

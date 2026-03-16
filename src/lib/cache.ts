@@ -79,3 +79,23 @@ export const cache: MemoryCache =
   globalForCache.cache ?? new MemoryCache(500);
 
 if (process.env.NODE_ENV !== "production") globalForCache.cache = cache;
+
+// Simple IP-based rate limiter using the cache
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+export function rateLimit(ip: string, limit: number, windowMs: number): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const entry = rateLimitStore.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, remaining: limit - 1 };
+  }
+
+  if (entry.count >= limit) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  entry.count++;
+  return { allowed: true, remaining: limit - entry.count };
+}

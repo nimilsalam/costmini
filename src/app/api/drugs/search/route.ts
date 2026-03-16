@@ -4,7 +4,7 @@ import { cache, TTL } from "@/lib/cache";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.toLowerCase() || "";
+  const q = (searchParams.get("q") || "").toLowerCase().slice(0, 200);
   const category = searchParams.get("category");
   const generic = searchParams.get("generic");
   const dosageForm = searchParams.get("dosageForm");
@@ -13,8 +13,8 @@ export async function GET(req: NextRequest) {
   const pharmacy = searchParams.get("pharmacy");
   const minDiscount = searchParams.get("minDiscount");
   const sortBy = searchParams.get("sortBy") || "name";
-  const page = parseInt(searchParams.get("page") || "1");
-  const limit = parseInt(searchParams.get("limit") || "50");
+  const page = Math.max(parseInt(searchParams.get("page") || "1") || 1, 1);
+  const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "50") || 50, 1), 100);
 
   // Check cache first
   const cacheKey = `search:${q}:${category}:${generic}:${dosageForm}:${mfrTier}:${prescriptionReq}:${pharmacy}:${minDiscount}:${sortBy}:${page}:${limit}`;
@@ -33,10 +33,10 @@ export async function GET(req: NextRequest) {
 
   if (q) {
     where.OR = [
-      { name: { contains: q, mode: "insensitive" } },
-      { genericName: { contains: q, mode: "insensitive" } },
-      { composition: { contains: q, mode: "insensitive" } },
-      { manufacturer: { contains: q, mode: "insensitive" } },
+      { name: { contains: q } },
+      { genericName: { contains: q } },
+      { composition: { contains: q } },
+      { manufacturer: { contains: q } },
     ];
   }
 
@@ -78,6 +78,15 @@ export async function GET(req: NextRequest) {
             slug: true,
             overallScore: true,
             tier: true,
+          },
+        },
+        compositionGroup: {
+          select: {
+            id: true,
+            displayName: true,
+            drugCount: true,
+            lowestPrice: true,
+            highestPrice: true,
           },
         },
       },

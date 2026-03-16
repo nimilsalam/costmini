@@ -37,6 +37,15 @@ export async function GET(
           eugmpCompliant: true,
         },
       },
+      compositionGroup: {
+        select: {
+          id: true,
+          displayName: true,
+          drugCount: true,
+          lowestPrice: true,
+          highestPrice: true,
+        },
+      },
       alternatives: {
         include: {
           alternativeDrug: {
@@ -66,14 +75,49 @@ export async function GET(
     // Ignore stale check errors
   }
 
-  const alternatives = drug.alternatives.map((alt: { alternativeDrug: { prices: { sellingPrice: number }[] } & Record<string, unknown>; savingsPercent: number }) => ({
-    ...alt.alternativeDrug,
-    lowestPrice:
-      alt.alternativeDrug.prices.length > 0
-        ? Math.min(...alt.alternativeDrug.prices.map((p) => p.sellingPrice))
-        : 0,
-    savingsPercent: alt.savingsPercent,
-  }));
+  // Get alternatives from composition group (same salt, different brands)
+  let alternatives: Record<string, unknown>[] = [];
+  if (drug.compositionGroupId) {
+    const groupDrugs = await prisma.drug.findMany({
+      where: {
+        compositionGroupId: drug.compositionGroupId,
+        id: { not: drug.id },
+      },
+      include: {
+        prices: { orderBy: { sellingPrice: "asc" } },
+        manufacturerRef: {
+          select: { tier: true, overallScore: true },
+        },
+      },
+      orderBy: { name: "asc" },
+      take: 50,
+    });
+    alternatives = groupDrugs.map((alt) => {
+      const altLowest = alt.prices.length > 0
+        ? Math.min(...alt.prices.map((p) => p.sellingPrice))
+        : 0;
+      const drugLowest = drug.prices.length > 0
+        ? Math.min(...drug.prices.map((p: { sellingPrice: number }) => p.sellingPrice))
+        : 0;
+      return {
+        ...alt,
+        lowestPrice: altLowest,
+        savingsPercent: drugLowest > 0 && altLowest > 0 && altLowest < drugLowest
+          ? Math.round(((drugLowest - altLowest) / drugLowest) * 100)
+          : 0,
+      };
+    });
+  } else {
+    // Fallback to manual DrugAlternative table
+    alternatives = drug.alternatives.map((alt: { alternativeDrug: { prices: { sellingPrice: number }[] } & Record<string, unknown>; savingsPercent: number }) => ({
+      ...alt.alternativeDrug,
+      lowestPrice:
+        alt.alternativeDrug.prices.length > 0
+          ? Math.min(...alt.alternativeDrug.prices.map((p) => p.sellingPrice))
+          : 0,
+      savingsPercent: alt.savingsPercent,
+    }));
+  }
 
   // Compute CostMini Scores for all prices
   const pharmacyRatings: Record<string, number> = {};

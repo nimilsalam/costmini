@@ -2,100 +2,131 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, X, Scan, Pill, Stethoscope, TestTube, Search, Sparkles, Store, Building2 } from "lucide-react";
+import {
+  Menu,
+  Pill,
+  ScanLine,
+  Search,
+  Store,
+  Building2,
+  Stethoscope,
+  TestTube,
+  Sparkles,
+  Info,
+  HelpCircle,
+  Mail,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
+
+const desktopLinks = [
+  { href: "/medicines", label: "Medicines" },
+  { href: "/search", label: "AI Search" },
+  { href: "/scan", label: "Scan Rx" },
+];
+
+const mobileLinks = [
+  { href: "/medicines", label: "Medicines", icon: Pill },
+  { href: "/scan", label: "Scan Prescription", icon: ScanLine },
+  { href: "/search", label: "AI Search", icon: Sparkles },
+  { href: "/pharmacies", label: "Pharmacies", icon: Store },
+  { href: "/manufacturers", label: "Manufacturers", icon: Building2 },
+  { href: "/procedures", label: "Surgeries", icon: Stethoscope },
+  { href: "/diagnostics", label: "Lab Tests", icon: TestTube },
+];
+
+const mobileSecondary = [
+  { href: "/about", label: "About", icon: Info },
+  { href: "/how-it-works", label: "How It Works", icon: HelpCircle },
+  { href: "/contact", label: "Contact", icon: Mail },
+];
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
 
-  const links = [
-    { href: "/medicines", label: "Medicines", icon: Pill },
-    { href: "/pharmacies", label: "Pharmacies", icon: Store },
-    { href: "/manufacturers", label: "Brands", icon: Building2 },
-    { href: "/procedures", label: "Surgeries", icon: Stethoscope },
-    { href: "/diagnostics", label: "Lab Tests", icon: TestTube },
-    { href: "/scan", label: "Scan Rx", icon: Scan },
-  ];
-
   return (
-    <nav className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+    <nav className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b border-border/60">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center justify-between h-12">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-lg bg-[var(--color-primary)] flex items-center justify-center">
-              <span className="text-white font-bold text-lg">C</span>
-            </div>
-            <span className="text-xl font-bold text-[var(--color-foreground)]">
-              Cost<span className="text-[var(--color-primary)]">Mini</span>
+          <Link href="/" className="flex items-center gap-1.5 shrink-0">
+            <span className="text-base font-semibold text-foreground tracking-tight">
+              CostMini
             </span>
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-6">
-            {links.map((l) => (
+          <div className="hidden md:flex items-center gap-0.5">
+            {desktopLinks.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
-                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-[var(--color-primary)] transition-colors"
+                className="px-3 py-1 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <l.icon size={16} />
                 {l.label}
               </Link>
             ))}
           </div>
 
-          {/* Search + CTA */}
-          <div className="hidden md:flex items-center gap-3">
-            <Link
-              href="/search"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-teal-50 transition-colors border border-gray-200"
-            >
-              <Sparkles size={14} className="text-[var(--color-primary)]" />
-              <span className="text-sm font-medium text-gray-600">AI Search</span>
-            </Link>
-            <Link
-              href="/scan"
-              className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white text-sm font-semibold hover:bg-[var(--color-primary-dark)] transition-colors animate-pulse-glow"
-            >
-              Scan & Save
-            </Link>
-          </div>
+          {/* Mobile menu */}
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="md:hidden h-8 w-8">
+                <Menu size={18} />
+                <span className="sr-only">Open menu</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64 p-0">
+              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
 
-          {/* Mobile menu button */}
-          <button
-            onClick={() => setOpen(!open)}
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
-          >
-            {open ? <X size={24} /> : <Menu size={24} />}
-          </button>
+              <div className="px-4 pt-4 pb-2">
+                <Link
+                  href="/"
+                  onClick={() => setOpen(false)}
+                  className="text-base font-semibold text-foreground"
+                >
+                  CostMini
+                </Link>
+              </div>
+
+              <Separator />
+
+              <div className="flex flex-col gap-0.5 px-2 pt-2">
+                {mobileLinks.map((l) => (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-foreground hover:bg-accent transition-colors"
+                  >
+                    <l.icon size={16} className="text-muted-foreground" />
+                    {l.label}
+                  </Link>
+                ))}
+              </div>
+
+              <div className="px-2 py-1.5">
+                <Separator />
+              </div>
+
+              <div className="flex flex-col gap-0.5 px-2">
+                {mobileSecondary.map((l) => (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <l.icon size={14} />
+                    {l.label}
+                  </Link>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
-
-      {/* Mobile menu */}
-      {open && (
-        <div className="md:hidden border-t border-gray-200 bg-white">
-          <div className="px-4 py-3 space-y-2">
-            {links.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                <l.icon size={18} className="text-[var(--color-primary)]" />
-                <span className="font-medium">{l.label}</span>
-              </Link>
-            ))}
-            <Link
-              href="/scan"
-              onClick={() => setOpen(false)}
-              className="block w-full text-center px-4 py-2.5 mt-2 rounded-lg bg-[var(--color-primary)] text-white font-semibold"
-            >
-              Scan Prescription & Save
-            </Link>
-          </div>
-        </div>
-      )}
     </nav>
   );
 }

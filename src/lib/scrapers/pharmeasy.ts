@@ -46,18 +46,32 @@ export class PharmEasyScraper extends DrugScraper {
 
     for (const item of products) {
       try {
+        // PharmEasy API uses mrpDecimal/salePriceDecimal (strings) for prices
+        const mrpStr = (item.mrpDecimal as string) || "";
+        const saleStr = (item.salePriceDecimal as string) || "";
+        const mrp = parseFloat(mrpStr) || (item.mrp as number) || 0;
+        const sellingPrice = parseFloat(saleStr) || (item.salePrice as number) || mrp;
+
+        // Availability is nested in productAvailabilityFlags
+        const availFlags = item.productAvailabilityFlags as Record<string, unknown> | undefined;
+        const isAvailable = availFlags?.isAvailable !== false;
+
+        // Image from damImages array or image field
+        const damImages = item.damImages as Array<Record<string, string>> | undefined;
+        const imageUrl = (item.image as string) || damImages?.[0]?.url || undefined;
+
         drugs.push({
           name: (item.name as string) || "",
-          genericName: (item.saltName as string) || (item.genericName as string) || "",
-          manufacturer: (item.manufacturerName as string) || "",
-          composition: (item.saltName as string) || "",
-          packSize: (item.packSize as string) || "",
-          mrp: (item.mrp as number) || 0,
-          sellingPrice: (item.salePrice as number) || (item.mrp as number) || 0,
-          inStock: (item.isInStock as boolean) !== false,
+          genericName: (item.moleculeName as string) || (item.saltName as string) || (item.genericName as string) || "",
+          manufacturer: (item.manufacturer as string) || (item.manufacturerName as string) || "",
+          composition: (item.moleculeName as string) || (item.saltName as string) || "",
+          packSize: (item.measurementUnit as string) || (item.packSize as string) || "",
+          mrp,
+          sellingPrice,
+          inStock: isAvailable,
           sourceUrl: `${this.baseUrl}/online-medicine-order/${item.slug || ""}`,
-          imageUrl: (item.imageUrl as string) || undefined,
-          prescriptionRequired: (item.isPrescriptionRequired as boolean) || false,
+          imageUrl,
+          prescriptionRequired: (item.isRxRequired as number) === 1 || (item.isPrescriptionRequired as boolean) || false,
         });
       } catch {
         continue;

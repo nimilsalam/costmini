@@ -7,16 +7,8 @@ const globalForPrisma = globalThis as unknown as {
 function createPrismaClient(): PrismaClient {
   const url = process.env.DATABASE_URL || "";
 
-  // Production / Vercel: PostgreSQL via @prisma/adapter-pg
-  if (url.startsWith("postgres")) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { PrismaPg } = require("@prisma/adapter-pg");
-    const adapter = new PrismaPg({ connectionString: url });
-    return new PrismaClient({ adapter });
-  }
-
-  // Local dev with SQLite via better-sqlite3 adapter
-  if (url.startsWith("file:") || url.endsWith(".db")) {
+  // SQLite via better-sqlite3 adapter (dev + current schema)
+  if (url.startsWith("file:") || url.endsWith(".db") || !url.startsWith("postgres")) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
@@ -24,19 +16,18 @@ function createPrismaClient(): PrismaClient {
       const path = require("path");
       const dbFile = url.startsWith("file:")
         ? url.replace("file:", "").replace("./", "")
-        : url;
+        : url || "dev.db";
       const fullPath = path.isAbsolute(dbFile)
         ? dbFile
         : path.join(process.cwd(), dbFile);
       const adapter = new PrismaBetterSqlite3({ url: `file:${fullPath}` });
       return new PrismaClient({ adapter });
     } catch {
-      console.warn("better-sqlite3 not available");
+      console.warn("better-sqlite3 not available, using fallback proxy");
     }
   }
 
   // Build-time fallback: return a proxy that throws on actual use
-  // This prevents build failures when no database is configured
   console.warn("No valid DATABASE_URL found. Database calls will fail at runtime.");
   return new Proxy({} as PrismaClient, {
     get(_target, prop) {
@@ -48,14 +39,14 @@ function createPrismaClient(): PrismaClient {
           return () =>
             Promise.reject(
               new Error(
-                "DATABASE_URL is not configured. Set a PostgreSQL connection string."
+                "DATABASE_URL is not configured."
               )
             );
         },
         apply() {
           return Promise.reject(
             new Error(
-              "DATABASE_URL is not configured. Set a PostgreSQL connection string."
+              "DATABASE_URL is not configured."
             )
           );
         },
