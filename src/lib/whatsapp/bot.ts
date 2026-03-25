@@ -1,20 +1,18 @@
 /**
- * WhatsApp Business API Integration Module
+ * CostMini WhatsApp Bot — India's Medicine Cost AI
  *
- * This module handles:
- * 1. Receiving prescription images via WhatsApp
- * 2. Processing them with OCR
- * 3. Finding cheaper alternatives
- * 4. Sending results back to the user
+ * August AI-style conversational health assistant focused on:
+ * - Medicine price comparison across Indian pharmacies
+ * - Generic alternative recommendations
+ * - Prescription photo scanning with AI
+ * - Jan Aushadhi (government generic) recommendations
+ * - Hindi + English bilingual support
  *
- * Setup:
- * - Register on Meta Business Suite (business.facebook.com)
- * - Create a WhatsApp Business App
- * - Get your Phone Number ID and Access Token
- * - Set the webhook URL to: https://yourdomain.com/api/whatsapp/webhook
- *
- * Providers: You can also use AiSensy, MSG91, or Infobip as BSPs
- * for easier integration in India.
+ * WhatsApp Business API message types used:
+ * - Text messages (with formatting)
+ * - Interactive buttons (quick actions)
+ * - Interactive lists (pharmacy selection, alternatives)
+ * - Template messages (onboarding, reminders)
  */
 
 export interface WhatsAppConfig {
@@ -25,11 +23,13 @@ export interface WhatsAppConfig {
 }
 
 export interface WhatsAppMessage {
-  from: string; // sender phone number
-  type: "text" | "image" | "document";
+  from: string;
+  type: "text" | "image" | "document" | "interactive" | "button";
   text?: string;
   imageUrl?: string;
   imageId?: string;
+  buttonPayload?: string; // interactive button reply
+  listReplyId?: string;   // interactive list selection
   timestamp: number;
 }
 
@@ -48,96 +48,182 @@ export interface WhatsAppWebhookPayload {
           type: string;
           text?: { body: string };
           image?: { id: string; mime_type: string };
+          interactive?: {
+            type: string;
+            button_reply?: { id: string; title: string };
+            list_reply?: { id: string; title: string; description?: string };
+          };
+          button?: { payload: string; text: string };
         }>;
       };
     }>;
   }>;
 }
 
-const WHATSAPP_API = "https://graph.facebook.com/v18.0";
+// ─── SESSION MANAGEMENT ─────────────────────────────────────────────────────
 
-/**
- * Send a text message via WhatsApp Business API
- */
-export async function sendTextMessage(
-  config: WhatsAppConfig,
-  to: string,
-  text: string
-): Promise<boolean> {
+interface UserSession {
+  lastDrug?: string;          // last searched drug name
+  lastComposition?: string;   // last composition group
+  lastAction?: string;        // last action taken
+  language?: "en" | "hi";     // preferred language
+  messageCount: number;        // total messages exchanged
+  firstSeen: number;
+  lastSeen: number;
+}
+
+// In-memory sessions (use Redis in production)
+const sessions = new Map<string, UserSession>();
+
+export function getSession(phone: string): UserSession {
+  let session = sessions.get(phone);
+  if (!session) {
+    session = {
+      messageCount: 0,
+      firstSeen: Date.now(),
+      lastSeen: Date.now(),
+    };
+    sessions.set(phone, session);
+  }
+  session.lastSeen = Date.now();
+  session.messageCount++;
+  return session;
+}
+
+// Clean old sessions (>24h)
+setInterval(() => {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [phone, session] of sessions) {
+    if (session.lastSeen < cutoff) sessions.delete(phone);
+  }
+}, 60 * 60 * 1000);
+
+// ─── WHATSAPP API HELPERS ───────────────────────────────────────────────────
+
+const WHATSAPP_API = "https://graph.facebook.com/v21.0";
+
+async function sendWhatsAppMessage(config: WhatsAppConfig, to: string, body: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(
-      `${WHATSAPP_API}/${config.phoneNumberId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "text",
-          text: { body: text },
-        }),
-      }
-    );
+    const res = await fetch(`${WHATSAPP_API}/${config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messaging_product: "whatsapp", to, ...body }),
+    });
     return res.ok;
   } catch {
     return false;
   }
 }
 
-/**
- * Send a template message (for initiating conversations)
- */
+/** Send a plain text message */
+export async function sendTextMessage(config: WhatsAppConfig, to: string, text: string): Promise<boolean> {
+  return sendWhatsAppMessage(config, to, { type: "text", text: { body: text } });
+}
+
+/** Send an interactive button message (max 3 buttons) */
+export async function sendButtonMessage(
+  config: WhatsAppConfig,
+  to: string,
+  bodyText: string,
+  buttons: Array<{ id: string; title: string }>,
+  headerText?: string,
+  footerText?: string,
+): Promise<boolean> {
+  return sendWhatsAppMessage(config, to, {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      ...(headerText ? { header: { type: "text", text: headerText } } : {}),
+      body: { text: bodyText },
+      ...(footerText ? { footer: { text: footerText } } : {}),
+      action: {
+        buttons: buttons.slice(0, 3).map(b => ({
+          type: "reply",
+          reply: { id: b.id, title: b.title.slice(0, 20) },
+        })),
+      },
+    },
+  });
+}
+
+/** Send an interactive list message (up to 10 items per section) */
+export async function sendListMessage(
+  config: WhatsAppConfig,
+  to: string,
+  bodyText: string,
+  buttonText: string,
+  sections: Array<{
+    title: string;
+    rows: Array<{ id: string; title: string; description?: string }>;
+  }>,
+  headerText?: string,
+  footerText?: string,
+): Promise<boolean> {
+  return sendWhatsAppMessage(config, to, {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      ...(headerText ? { header: { type: "text", text: headerText } } : {}),
+      body: { text: bodyText },
+      ...(footerText ? { footer: { text: footerText } } : {}),
+      action: {
+        button: buttonText.slice(0, 20),
+        sections: sections.map(s => ({
+          title: s.title.slice(0, 24),
+          rows: s.rows.slice(0, 10).map(r => ({
+            id: r.id.slice(0, 200),
+            title: r.title.slice(0, 24),
+            description: r.description?.slice(0, 72),
+          })),
+        })),
+      },
+    },
+  });
+}
+
+/** Send a template message (for onboarding / re-engagement) */
 export async function sendTemplateMessage(
   config: WhatsAppConfig,
   to: string,
   templateName: string,
-  languageCode: string = "en"
+  languageCode: string = "en",
 ): Promise<boolean> {
-  try {
-    const res = await fetch(
-      `${WHATSAPP_API}/${config.phoneNumberId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "template",
-          template: {
-            name: templateName,
-            language: { code: languageCode },
-          },
-        }),
-      }
-    );
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return sendWhatsAppMessage(config, to, {
+    type: "template",
+    template: { name: templateName, language: { code: languageCode } },
+  });
 }
 
-/**
- * Download media (image) from WhatsApp to process with OCR
- */
-export async function downloadMedia(
-  config: WhatsAppConfig,
-  mediaId: string
-): Promise<Buffer | null> {
+/** Mark message as read (shows blue ticks) */
+export async function markAsRead(config: WhatsAppConfig, messageId: string): Promise<void> {
   try {
-    // Step 1: Get the media URL
+    await fetch(`${WHATSAPP_API}/${config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: messageId,
+      }),
+    });
+  } catch { /* ignore */ }
+}
+
+/** Download media (image/document) from WhatsApp */
+export async function downloadMedia(config: WhatsAppConfig, mediaId: string): Promise<Buffer | null> {
+  try {
     const urlRes = await fetch(`${WHATSAPP_API}/${mediaId}`, {
       headers: { Authorization: `Bearer ${config.accessToken}` },
     });
     if (!urlRes.ok) return null;
     const { url } = (await urlRes.json()) as { url: string };
 
-    // Step 2: Download the actual file
     const fileRes = await fetch(url, {
       headers: { Authorization: `Bearer ${config.accessToken}` },
     });
@@ -150,74 +236,10 @@ export async function downloadMedia(
   }
 }
 
-/**
- * Send interactive button message for medicine alternatives
- */
-export async function sendAlternativesMessage(
-  config: WhatsAppConfig,
-  to: string,
-  drugName: string,
-  brandPrice: number,
-  genericName: string,
-  genericPrice: number,
-  savingsPercent: number
-): Promise<boolean> {
-  const body = [
-    `💊 *${drugName}*`,
-    `Brand Price: ₹${brandPrice}`,
-    ``,
-    `✅ *Generic Alternative: ${genericName}*`,
-    `Generic Price: ₹${genericPrice}`,
-    `💰 *You Save: ${savingsPercent}%*`,
-    ``,
-    `Same composition, WHO-GMP certified.`,
-  ].join("\n");
+// ─── MESSAGE PARSER ─────────────────────────────────────────────────────────
 
-  try {
-    const res = await fetch(
-      `${WHATSAPP_API}/${config.phoneNumberId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text: body },
-            action: {
-              buttons: [
-                {
-                  type: "reply",
-                  reply: { id: "view_more", title: "View All Prices" },
-                },
-                {
-                  type: "reply",
-                  reply: { id: "scan_another", title: "Scan Another" },
-                },
-              ],
-            },
-          },
-        }),
-      }
-    );
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Parse incoming webhook payload into structured messages
- */
-export function parseWebhookMessages(
-  payload: WhatsAppWebhookPayload
-): WhatsAppMessage[] {
-  const messages: WhatsAppMessage[] = [];
+export function parseWebhookMessages(payload: WhatsAppWebhookPayload): (WhatsAppMessage & { messageId?: string })[] {
+  const messages: (WhatsAppMessage & { messageId?: string })[] = [];
 
   for (const entry of payload.entry || []) {
     for (const change of entry.changes || []) {
@@ -227,7 +249,10 @@ export function parseWebhookMessages(
           type: msg.type as WhatsAppMessage["type"],
           text: msg.text?.body,
           imageId: msg.image?.id,
+          buttonPayload: msg.interactive?.button_reply?.id || msg.button?.payload,
+          listReplyId: msg.interactive?.list_reply?.id,
           timestamp: parseInt(msg.timestamp) * 1000,
+          messageId: msg.id,
         });
       }
     }
@@ -236,59 +261,135 @@ export function parseWebhookMessages(
   return messages;
 }
 
-/**
- * Generate the welcome message for new users
- */
-export function getWelcomeMessage(): string {
+// ─── INDIA-SPECIFIC MESSAGE TEMPLATES ───────────────────────────────────────
+
+export function getWelcomeMessage(language: "en" | "hi" = "en"): string {
+  if (language === "hi") {
+    return [
+      "🏥 *CostMini में आपका स्वागत है!*",
+      "",
+      "मैं आपको सस्ती दवाइयाँ ढूंढने में मदद करता हूँ।",
+      "",
+      "📸 *अपने प्रिस्क्रिप्शन की फोटो भेजें* और तुरंत जानें:",
+      "• सस्ते जेनेरिक विकल्प",
+      "• सभी फार्मेसी की कीमतें",
+      "• कितनी बचत हो सकती है",
+      "",
+      "या दवाई का नाम टाइप करें (जैसे \"Dolo 650\")",
+      "",
+      "💰 _वही दवाई, 80% तक सस्ती!_",
+      "",
+      "Type 'english' for English",
+    ].join("\n");
+  }
+
   return [
     "🏥 *Welcome to CostMini!*",
+    "_India's Medicine Cost AI_",
     "",
-    "I help you find cheaper medicine alternatives.",
+    "I help you find *identical medicines at the lowest price* across Indian pharmacies.",
     "",
-    "📸 *Send me a photo of your prescription* and I'll instantly show you:",
-    "• Cheaper generic alternatives",
-    "• Price comparison across pharmacies",
-    "• How much you can save",
+    "Here's what I can do:",
     "",
-    "Or type a medicine name to search (e.g. \"Dolo 650\")",
+    "📸 *Send a prescription photo* → I'll find cheaper alternatives for every medicine",
     "",
-    "💡 _Same quality medicines, up to 80% cheaper!_",
+    "💊 *Type a medicine name* → I'll show all brands & prices",
+    "  Example: \"Dolo 650\" or \"Paracetamol\"",
+    "",
+    "🧪 *Type a salt/composition* → I'll show every brand with that formula",
+    "  Example: \"Azithromycin 500mg\"",
+    "",
+    "💰 *Your savings can be 50-90%* by switching to generics!",
+    "  Same salt, same quality, WHO-GMP certified.",
+    "",
+    "━━━━━━━━━━━━━━━",
+    "Type *hi* to get started | Type *hindi* for हिंदी",
+    "🔗 costmini.in",
   ].join("\n");
 }
 
-/**
- * Generate a summary message for scan results
- */
-export function getScanSummaryMessage(
-  results: Array<{
-    drugName: string;
-    brandPrice: number;
-    genericPrice: number;
-    savingsPercent: number;
-  }>
-): string {
-  if (results.length === 0) {
-    return "❌ Could not identify medicines from this image. Please try a clearer photo or type the medicine name.";
-  }
+export function getHelpMessage(): string {
+  return [
+    "📖 *CostMini — Quick Guide*",
+    "",
+    "1️⃣ *Search by name*",
+    "   → Type: Dolo 650, Crocin, Pan 40",
+    "",
+    "2️⃣ *Search by salt*",
+    "   → Type: Paracetamol, Azithromycin",
+    "",
+    "3️⃣ *Scan prescription*",
+    "   → Send a clear photo of your prescription",
+    "",
+    "4️⃣ *Compare brands*",
+    "   → Type: compare Paracetamol 500mg",
+    "",
+    "5️⃣ *Jan Aushadhi*",
+    "   → Type: janaushadhi Paracetamol",
+    "   (Government generic medicines at ₹1-₹10)",
+    "",
+    "6️⃣ *Quick commands*",
+    "   → cheapest, alternatives, nearby",
+    "",
+    "💡 *Tip:* Always search by salt name for best results!",
+  ].join("\n");
+}
 
-  const totalBrand = results.reduce((s, r) => s + r.brandPrice, 0);
-  const totalGeneric = results.reduce((s, r) => s + r.genericPrice, 0);
-  const totalSaved = totalBrand - totalGeneric;
+// Format price in Indian style
+export function formatINR(amount: number): string {
+  if (!amount || amount <= 0) return "N/A";
+  return "₹" + amount.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
 
-  const lines = [
-    "📋 *Prescription Scan Results*",
-    "",
-    ...results.map(
-      (r) =>
-        `• *${r.drugName}*: ₹${r.brandPrice} → ₹${r.genericPrice} (Save ${r.savingsPercent}%)`
-    ),
-    "",
-    `💰 *Total Savings: ₹${totalSaved}* (${Math.round((totalSaved / totalBrand) * 100)}% less)`,
-    "",
-    "All alternatives are WHO-GMP certified. Ask your doctor about switching to generics!",
-    "",
-    "🔗 View full details: costmini.in/scan",
-  ];
+// Format savings percentage
+export function formatSavings(expensive: number, cheap: number): string {
+  if (expensive <= 0 || cheap <= 0 || cheap >= expensive) return "";
+  const pct = Math.round(((expensive - cheap) / expensive) * 100);
+  return pct > 0 ? `${pct}%` : "";
+}
 
-  return lines.join("\n");
+// Generate shareable comparison text for WhatsApp forward
+export function getShareText(drugName: string, brandPrice: number, genericPrice: number, savedPct: number): string {
+  return [
+    `🔥 I saved ${savedPct}% on my medicine using CostMini!`,
+    "",
+    `💊 ${drugName}`,
+    `Brand: ${formatINR(brandPrice)} → Generic: ${formatINR(genericPrice)}`,
+    "",
+    `Same composition, WHO-certified quality.`,
+    "",
+    `Try it free on WhatsApp: wa.me/91XXXXXXXXXX`,
+    `Or visit: costmini.in`,
+  ].join("\n");
+}
+
+// ─── RE-EXPORTS ─────────────────────────────────────────────────────────────
+
+export { sendAlternativesMessage };
+
+async function sendAlternativesMessage(
+  config: WhatsAppConfig,
+  to: string,
+  drugName: string,
+  brandPrice: number,
+  genericName: string,
+  genericPrice: number,
+  savingsPercent: number,
+): Promise<boolean> {
+  const body = [
+    `💊 *${drugName}*`,
+    `Brand Price: ${formatINR(brandPrice)}`,
+    ``,
+    `✅ *Generic Alternative: ${genericName}*`,
+    `Generic Price: ${formatINR(genericPrice)}`,
+    `💰 *You Save: ${savingsPercent}%*`,
+    ``,
+    `Same composition, WHO-GMP certified.`,
+  ].join("\n");
+
+  return sendButtonMessage(config, to, body, [
+    { id: "view_all_prices", title: "View All Prices" },
+    { id: "share_savings", title: "Share Savings" },
+    { id: "scan_another", title: "Scan Another" },
+  ]);
 }
