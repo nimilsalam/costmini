@@ -325,7 +325,8 @@ const HARVEST_SOURCES = [
   { dir: "pharmeasy-fast", normalizer: normalizePharmeasy, source: "PharmEasy" },
   // Apollo (salt only, no sitemap available)
   { dir: "apollo-salts-fast", normalizer: normalizeApollo, source: "Apollo" },
-  // Others
+  // Truemeds (sitemap preferred, then fast fallback)
+  { dir: "truemeds-sitemap", normalizer: normalizeTruemeds, source: "Truemeds" },
   { dir: "truemeds-fast", normalizer: normalizeTruemeds, source: "Truemeds" },
 ];
 
